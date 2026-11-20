@@ -8,3 +8,9 @@ obj/
 *.ldf
 *.mdf
 appsettings.Development.json
+node_modules/
+test-results/
+playwright-report/
+.env
+.env.*
+*.env

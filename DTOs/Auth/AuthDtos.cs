@@ -18,7 +18,7 @@ namespace ChatbotApi.DTOs.Auth
         public string Password { get; set; } = string.Empty;
 
         [MaxLength(20)]
-        public string Rol { get; set; } = "User"; // "Admin" o "User"
+        public string Rol { get; set; } = "User"; // Compatibilidad del contrato; el registro público siempre asigna User.
     }
 
     public class LoginDto

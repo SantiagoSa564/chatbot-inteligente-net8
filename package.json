@@ -1,0 +1,22 @@
+{
+  "name": "nexusai-ui-checks",
+  "private": true,
+  "description": "NexusAI vanilla frontend dependencies and browser checks; no application bundler required.",
+  "scripts": {
+    "test:real": "node scripts/verify-real.cjs",
+    "test:real:browser": "node scripts/verify-browser-real.cjs",
+    "test": "node --test tests/*.test.cjs",
+    "test:unit": "node --test tests/unit.test.cjs",
+    "vendor:sync": "node scripts/sync-vendor.cjs",
+    "postinstall": "node scripts/sync-vendor.cjs"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "playwright": "1.65.1"
+  },
+  "dependencies": {
+    "dompurify": "3.4.18",
+    "fuse.js": "7.1.0",
+    "marked": "18.2.1"
+  }
+}

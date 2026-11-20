@@ -1,0 +1,14 @@
+.git
+node_modules
+bin
+obj
+Docs
+tests
+test-results
+playwright-report
+design-system
+.env
+.env.*
+**/*.env
+**/*.user
+appsettings.Development.json

@@ -1,1201 +1,935 @@
-// ============================================================================
-// ESTADO GLOBAL Y CONEXIÓN HÍBRIDA CON ASP.NET CORE WEB API (.NET 8)
-// ============================================================================
-const API_BASE = window.location.protocol.startsWith('http') ? '/api' : null;
-let isBackendOnline = false;
+'use strict';
 
-// Datos Semilla (Idénticos a Data/DbInitializer.cs)
+// No secrets or authentication tokens are persisted. Demo and API caches are isolated.
+const API_BASE = /^https?:$/.test(location.protocol) ? '/api' : null;
+const $ = id => document.getElementById(id);
 const seedFaqs = [
-  {
-    id: 1,
-    textoPregunta: "¿Cuáles son los horarios de atención al cliente?",
-    categoria: "Información General",
-    estadoActivo: true,
-    respuestas: [{
-      id: 1,
-      preguntaId: 1,
-      textoRespuesta: "Nuestro horario de atención con asesores humanos es de lunes a viernes de 8:00 a.m. a 6:00 p.m. y sábados de 9:00 a.m. a 1:00 p.m. Nuestro asistente virtual está disponible las 24 horas del día.",
-      ultimaActualizacion: new Date().toISOString()
-    }]
-  },
-  {
-    id: 2,
-    textoPregunta: "¿Cómo puedo restablecer mi contraseña?",
-    categoria: "Cuenta y Acceso",
-    estadoActivo: true,
-    respuestas: [{
-      id: 2,
-      preguntaId: 2,
-      textoRespuesta: "Para restablecer su contraseña, diríjase a la pantalla de inicio de sesión, seleccione '¿Olvidó su contraseña?' e ingrese su correo electrónico registrado. Recibirá un enlace temporal para crear una nueva clave.",
-      ultimaActualizacion: new Date().toISOString()
-    }]
-  },
-  {
-    id: 3,
-    textoPregunta: "¿Cuáles son los medios de pago aceptados?",
-    categoria: "Pagos y Facturación",
-    estadoActivo: true,
-    respuestas: [{
-      id: 3,
-      preguntaId: 3,
-      textoRespuesta: "Aceptamos tarjetas de crédito (Visa, MasterCard, American Express), tarjetas débito a través de PSE y transferencias bancarias directas.",
-      ultimaActualizacion: new Date().toISOString()
-    }]
-  },
-  {
-    id: 4,
-    textoPregunta: "¿En cuánto tiempo se procesa un reembolso?",
-    categoria: "Pagos y Facturación",
-    estadoActivo: true,
-    respuestas: [{
-      id: 4,
-      preguntaId: 4,
-      textoRespuesta: "Una vez aprobada la solicitud de reembolso, el reintegro del dinero toma entre 5 y 10 días hábiles dependiendo de su entidad financiera.",
-      ultimaActualizacion: new Date().toISOString()
-    }]
-  },
-  {
-    id: 5,
-    textoPregunta: "¿Cómo puedo radicar una petición, queja o reclamo (PQR)?",
-    categoria: "Soporte y PQR",
-    estadoActivo: true,
-    respuestas: [{
-      id: 5,
-      preguntaId: 5,
-      textoRespuesta: "Puede radicar una PQR desde la sección 'Centro de Ayuda -> Radicar PQR' en nuestro portal web, o enviando un correo electrónico detallado a soporte@chatbot.com. Recibirá un número de radicado con respuesta en un plazo máximo de 15 días hábiles.",
-      ultimaActualizacion: new Date().toISOString()
-    }]
-  }
-];
+  ['Información General', '¿Cuáles son los horarios de atención al cliente?', 'La atención con asesores es de lunes a viernes de 8:00 a.m. a 6:00 p.m. y sábados de 9:00 a.m. a 1:00 p.m.'],
+  ['Cuenta y Acceso', '¿Cómo puedo restablecer mi contraseña?', 'Consulte con el administrador de la entidad el procedimiento para restablecer su contraseña. Esta demo no implementa recuperación de claves.'],
+  ['Pagos y Facturación', '¿Cuáles son los medios de pago aceptados?', 'Aceptamos tarjetas de crédito Visa, MasterCard y American Express, PSE y transferencias bancarias.'],
+  ['Pagos y Facturación', '¿En cuánto tiempo se procesa un reembolso?', 'Una vez aprobado, el reintegro toma entre 5 y 10 días hábiles, según su entidad financiera.'],
+  ['Soporte y PQR', '¿Cómo puedo radicar una petición, queja o reclamo (PQR)?', 'Consulte los canales oficiales de la entidad para radicar su PQR. Esta demo no radica solicitudes.']
+].map(([categoria, textoPregunta, textoRespuesta], index) => ({
+  id: index + 1, categoria, textoPregunta, estadoActivo: true,
+  respuestas: [{ id: index + 1, preguntaId: index + 1, textoRespuesta, ultimaActualizacion: new Date().toISOString() }]
+}));
 
-let faqsState = JSON.parse(localStorage.getItem('chatbot_v2_faqs') || 'null') || seedFaqs;
-let sessionsState = JSON.parse(localStorage.getItem('chatbot_v2_sessions') || '[]');
-let conversationsDb = JSON.parse(localStorage.getItem('chatbot_v2_conversations') || '[]');
-let currentUser = JSON.parse(localStorage.getItem('chatbot_v2_user') || 'null');
-let aiConfig = JSON.parse(localStorage.getItem('chatbot_v2_aiconfig') || '{"provider":"free-llm","apiKey":"","model":"gemini-1.5-flash"}');
+let mode = 'unselected';
+let connection = 'connecting';
+let faqsState = [];
+let sessionsState = [];
+let conversationsDb = [];
+let currentUser = null;
 let currentSessionId = null;
 let selectedFaqCategory = 'Todas';
-let authMode = 'login'; // 'login' | 'register'
+let faqLoadError = false;
+let chatBusy = false;
+let operationBusy = false;
+let checking = false;
+let aiConfig = { provider: 'local', apiKey: '', consent: false };
+let toastTimer;
+let confirmResolver = null;
+let sidebarOpen = false;
+let currentView = 'chat';
+const dialogTriggers = new WeakMap();
+const retryAfterUntil = new Map();
 
-// ============================================================================
-// INICIALIZACIÓN
-// ============================================================================
-document.addEventListener('DOMContentLoaded', async () => {
-  setupTextareaAutoResize();
-  updateUserProfileUI();
-
-  // Intentar conectar con el Backend .NET 8 si se sirve por HTTP
-  if (API_BASE) {
-    try {
-      const res = await fetch(`${API_BASE}/faqs`);
-      if (res.ok) {
-        isBackendOnline = true;
-        faqsState = await res.json();
-        updateConnectionBadge(true);
-      }
-    } catch (_) {
-      isBackendOnline = false;
-      updateConnectionBadge(false);
-    }
-  } else {
-    updateConnectionBadge(false);
-  }
-
-  // Crear o cargar sesión inicial
-  if (sessionsState.length === 0) {
-    createNewChatSession(false);
-  } else {
-    currentSessionId = sessionsState[0].sessionId;
-  }
-
-  renderSessionsSidebar();
-  renderCurrentChatMessages();
-  renderSuggestedPrompts();
-  renderFaqsView();
-  renderConversationsLog();
-});
-
-function generateGuid() {
-  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-    const r = Math.random() * 16 | 0;
-    const v = c === 'x' ? r : (r & 0x3 | 0x8);
-    return v.toString(16);
+// Presentation preference only: identity, roles, tokens and provider keys remain in memory.
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  $('theme-toggle').setAttribute('aria-pressed', String(theme === 'dark'));
+  $('theme-select').value = theme;
+}
+function initializeTheme() {
+  const preferred = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  applyTheme(readStored('nexus_ui_theme', value => ['light', 'dark'].includes(value), preferred));
+  $('theme-toggle').addEventListener('click', () => {
+    const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+    applyTheme(theme); store('nexus_ui_theme', theme);
   });
 }
-
-function updateConnectionBadge(online) {
-  const dot = document.getElementById('conn-dot');
-  const label = document.getElementById('conn-label');
-  if (online) {
-    dot.className = 'w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]';
-    label.textContent = '.NET 8 API + SQL Server';
-  } else {
-    dot.className = 'w-2 h-2 rounded-full bg-indigo-400 animate-pulse';
-    label.textContent = 'Motor IA Local Activo';
+const markdownParser = typeof marked !== 'undefined' ? new marked.Marked({
+  gfm: true, breaks: true,
+  renderer: {
+    // Chat content must not introduce a new page heading or load tracking images.
+    heading({ tokens }) { return `<p><strong>${this.parser.parseInline(tokens)}</strong></p>`; },
+    html({ text }) { return escapeMarkup(text); },
+    image({ text }) { return escapeMarkup(text || ''); }
   }
+}) : null;
+
+function escapeMarkup(text) {
+  return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
-
-// ============================================================================
-// GESTIÓN DE SESIONES DE CHAT (HISTORIAL TIPO CHATGPT)
-// ============================================================================
-function createNewChatSession(switchToChat = true) {
-  const newGuid = generateGuid();
-  const newSession = {
-    sessionId: newGuid,
-    title: 'Nueva conversación',
-    createdAt: new Date().toISOString(),
-    messages: []
-  };
-
-  sessionsState.unshift(newSession);
-  currentSessionId = newGuid;
-  saveSessions();
-  renderSessionsSidebar();
-  renderCurrentChatMessages();
-
-  if (switchToChat) {
-    switchWorkspaceView('chat');
-    document.getElementById('chat-input')?.focus();
+function renderReply(content) {
+  const body = element('div', 'message-body');
+  // Both libraries are required. A missing dependency must fail closed to plain text.
+  if (!markdownParser || typeof DOMPurify === 'undefined' || !DOMPurify.isSupported) {
+    body.textContent = content;
+    return body;
   }
-}
-
-function selectSession(sessionId) {
-  currentSessionId = sessionId;
-  renderSessionsSidebar();
-  renderCurrentChatMessages();
-  switchWorkspaceView('chat');
-}
-
-function deleteSession(event, sessionId) {
-  event.stopPropagation();
-  sessionsState = sessionsState.filter(s => s.sessionId !== sessionId);
-  if (sessionsState.length === 0) {
-    createNewChatSession(false);
-  } else if (currentSessionId === sessionId) {
-    currentSessionId = sessionsState[0].sessionId;
-  }
-  saveSessions();
-  renderSessionsSidebar();
-  renderCurrentChatMessages();
-}
-
-function saveSessions() {
-  localStorage.setItem('chatbot_v2_sessions', JSON.stringify(sessionsState));
-}
-
-function getCurrentSession() {
-  return sessionsState.find(s => s.sessionId === currentSessionId) || sessionsState[0];
-}
-
-function renderSessionsSidebar() {
-  const list = document.getElementById('sessions-list');
-  const badge = document.getElementById('active-session-guid');
-  if (badge && currentSessionId) {
-    badge.textContent = currentSessionId;
-  }
-
-  list.innerHTML = sessionsState.map(session => {
-    const isActive = session.sessionId === currentSessionId;
-    const count = session.messages.filter(m => m.role === 'user').length;
-    return `
-      <div
-        onclick="selectSession('${session.sessionId}')"
-        class="group flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer transition ${
-          isActive
-            ? 'bg-indigo-600/20 border border-indigo-500/40 text-white'
-            : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200 border border-transparent'
-        }"
-      >
-        <div class="flex items-center gap-2.5 min-w-0 pr-2">
-          <i class="fa-regular fa-message text-xs ${isActive ? 'text-indigo-400' : 'text-slate-500'}"></i>
-          <div class="truncate">
-            <p class="text-xs font-medium truncate">${escapeHtml(session.title)}</p>
-            <p class="text-[10px] text-slate-500 font-mono truncate">${session.sessionId.slice(0, 8)}... &bull; ${count} msj</p>
-          </div>
-        </div>
-        <button
-          onclick="deleteSession(event, '${session.sessionId}')"
-          class="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-rose-400 p-1 transition text-xs"
-          title="Eliminar sesión"
-        >
-          <i class="fa-solid fa-xmark"></i>
-        </button>
-      </div>
-    `;
-  }).join('');
-}
-
-// ============================================================================
-// RENDERIZADO DE MENSAJES Y PANTALLA DE BIENVENIDA DEL CHATBOT
-// ============================================================================
-function renderCurrentChatMessages() {
-  const session = getCurrentSession();
-  const emptyState = document.getElementById('chat-empty-state');
-  const messagesList = document.getElementById('chat-messages-list');
-  const container = document.getElementById('chat-scroll-container');
-
-  document.getElementById('active-session-guid').textContent = session.sessionId;
-
-  if (!session.messages || session.messages.length === 0) {
-    emptyState.classList.remove('hidden');
-    messagesList.classList.add('hidden');
-    messagesList.innerHTML = '';
-    renderSuggestedPrompts();
-    return;
-  }
-
-  emptyState.classList.add('hidden');
-  messagesList.classList.remove('hidden');
-
-  messagesList.innerHTML = session.messages.map((msg, idx) => buildMessageHTML(msg, idx)).join('');
-  scrollToBottom(container);
-}
-
-function buildMessageHTML(msg, idx) {
-  const timeStr = new Date(msg.timestamp).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
-
-  if (msg.role === 'user') {
-    return `
-      <div class="flex justify-end msg-enter">
-        <div class="max-w-2xl flex items-end gap-3">
-          <div class="bg-gradient-to-br from-indigo-600 to-violet-600 text-white px-4 py-3 rounded-2xl rounded-br-xs shadow-lg">
-            <p class="text-sm leading-relaxed whitespace-pre-line">${escapeHtml(msg.content)}</p>
-            <div class="flex items-center justify-end gap-2 mt-1.5 text-[10px] text-indigo-200/80">
-              <span>${currentUser ? escapeHtml(currentUser.nombre) : 'Visitante'}</span>
-              <span>&bull;</span>
-              <span>${timeStr}</span>
-            </div>
-          </div>
-          <div class="w-8 h-8 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-bold text-indigo-300 shrink-0">
-            ${currentUser ? currentUser.nombre.charAt(0).toUpperCase() : '<i class="fa-regular fa-user"></i>'}
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
-  // Respuesta del Bot (IA)
-  const sourceBadge = msg.matchedCategory
-    ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-         <i class="fa-solid fa-check-double text-[9px]"></i> Fuente FAQ: ${escapeHtml(msg.matchedCategory)}
-       </span>`
-    : `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
-         <i class="fa-solid fa-wand-magic-sparkles text-[9px]"></i> System Prompt Institucional
-       </span>`;
-
-  return `
-    <div class="flex justify-start msg-enter">
-      <div class="max-w-3xl flex items-start gap-3.5">
-        <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center text-white shadow-md glow-indigo shrink-0 mt-0.5">
-          <i class="fa-solid fa-robot text-sm"></i>
-        </div>
-        <div class="glass-card rounded-2xl rounded-tl-xs px-5 py-4 text-slate-100 shadow-lg flex-1">
-          <div class="flex flex-wrap items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-700/50">
-            <div class="flex items-center gap-2">
-              <span class="text-xs font-bold text-white">Asistente Inteligente IA</span>
-              ${sourceBadge}
-            </div>
-            <span class="text-[10px] text-slate-400 font-mono">${timeStr}</span>
-          </div>
-          <div class="text-sm text-slate-200 leading-relaxed space-y-2 whitespace-pre-line">${formatBotRichText(msg.content)}</div>
-          <div class="mt-3 pt-2.5 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
-            <div class="flex items-center gap-3">
-              <button onclick="copyBotResponse(${idx})" class="hover:text-indigo-400 transition flex items-center gap-1" title="Copiar respuesta">
-                <i class="fa-regular fa-copy"></i> <span>Copiar</span>
-              </button>
-              <button onclick="rateResponse(this, 'up')" class="hover:text-emerald-400 transition" title="Respuesta útil">
-                <i class="fa-regular fa-thumbs-up"></i>
-              </button>
-              <button onclick="rateResponse(this, 'down')" class="hover:text-rose-400 transition" title="No resolvió mi duda">
-                <i class="fa-regular fa-thumbs-down"></i>
-              </button>
-            </div>
-            <span class="font-mono text-[10px] text-slate-500">Tabla: Conversaciones</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-function renderSuggestedPrompts() {
-  const grid = document.getElementById('suggested-prompts-grid');
-  const activeFaqs = faqsState.filter(f => f.estadoActivo);
-  document.getElementById('sidebar-faq-counter').textContent = activeFaqs.length;
-
-  const icons = {
-    'Información General': 'fa-clock text-cyan-400',
-    'Cuenta y Acceso': 'fa-shield-halved text-indigo-400',
-    'Pagos y Facturación': 'fa-credit-card text-emerald-400',
-    'Soporte y PQR': 'fa-headset text-amber-400'
-  };
-
-  grid.innerHTML = activeFaqs.slice(0, 6).map(faq => {
-    const iconClass = icons[faq.categoria] || 'fa-circle-question text-indigo-400';
-    return `
-      <button
-        onclick="sendPredefinedPrompt(${JSON.stringify(faq.textoPregunta).replace(/"/g, '&quot;')})"
-        class="glass-card text-left p-4 rounded-2xl group flex flex-col justify-between gap-3 cursor-pointer"
-      >
-        <div class="flex items-center justify-between w-full">
-          <span class="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-slate-800/90 text-slate-300 border border-slate-700">
-            ${escapeHtml(faq.categoria)}
-          </span>
-          <i class="fa-solid ${iconClass} text-sm group-hover:scale-110 transition"></i>
-        </div>
-        <p class="text-xs sm:text-sm font-medium text-slate-200 group-hover:text-white leading-snug">
-          ${escapeHtml(faq.textoPregunta)}
-        </p>
-        <div class="flex items-center gap-1 text-[11px] text-indigo-400 font-medium">
-          <span>Consultar al asistente</span>
-          <i class="fa-solid fa-arrow-right text-[10px] group-hover:translate-x-1 transition"></i>
-        </div>
-      </button>
-    `;
-  }).join('');
-}
-
-function sendPredefinedPrompt(text) {
-  const input = document.getElementById('chat-input');
-  input.value = text;
-  handleChatSubmit(new Event('submit'));
-}
-
-// ============================================================================
-// ENVÍO DE MENSAJES Y CONEXIÓN CON AiIntegrationService (POST /api/chat/send)
-// ============================================================================
-async function handleChatSubmit(event) {
-  if (event) event.preventDefault();
-  const input = document.getElementById('chat-input');
-  const text = input.value.trim();
-  if (!text) return;
-
-  input.value = '';
-  input.style.height = 'auto';
-
-  const session = getCurrentSession();
-  const nowIso = new Date().toISOString();
-
-  // Actualizar título de la sesión con el primer mensaje
-  if (session.messages.length === 0) {
-    session.title = text.length > 34 ? text.slice(0, 34) + '...' : text;
-  }
-
-  // Agregar mensaje del usuario
-  session.messages.push({
-    role: 'user',
-    content: text,
-    timestamp: nowIso
-  });
-
-  saveSessions();
-  renderSessionsSidebar();
-  renderCurrentChatMessages();
-
-  // Mostrar animación "Escribiendo..."
-  showTypingIndicator(true);
-
-  let botReply = '';
-  let matchedCat = null;
-  let replyTime = new Date().toISOString();
-
-  if (isBackendOnline) {
-    try {
-      const headers = { 'Content-Type': 'application/json' };
-      if (currentUser?.token) {
-        headers['Authorization'] = `Bearer ${currentUser.token}`;
-      }
-      const res = await fetch(`${API_BASE}/chat/send`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          sessionId: session.sessionId,
-          mensaje: text
-        })
-      });
-      if (res.ok) {
-        const dto = await res.json();
-        botReply = dto.respuestaBot;
-        replyTime = dto.timestamp || replyTime;
-        conversationsDb.unshift(dto);
-      } else {
-        const sim = runLocalRagEngine(text);
-        botReply = sim.reply;
-        matchedCat = sim.category;
-      }
-    } catch (_) {
-      const sim = await generateSmartAiResponse(text, session.messages);
-      botReply = sim.reply;
-      matchedCat = sim.category;
-    }
-  } else {
-    // Llamar al motor de IA (API de LLM en vivo + RAG con FAQs + Conversación natural)
-    const sim = await generateSmartAiResponse(text, session.messages);
-    botReply = sim.reply;
-    matchedCat = sim.category;
-
-    const newRecord = {
-      conversacionId: conversationsDb.length + 1,
-      sessionId: session.sessionId,
-      usuarioId: currentUser ? currentUser.usuarioId : null,
-      preguntaUsuario: text,
-      respuestaBot: botReply,
-      timestamp: replyTime
-    };
-    conversationsDb.unshift(newRecord);
-    localStorage.setItem('chatbot_v2_conversations', JSON.stringify(conversationsDb));
-  }
-
-  showTypingIndicator(false);
-
-  session.messages.push({
-    role: 'bot',
-    content: botReply,
-    matchedCategory: matchedCat,
-    timestamp: replyTime
-  });
-
-  saveSessions();
-  renderSessionsSidebar();
-  renderCurrentChatMessages();
-  renderConversationsLog();
-}
-
-// ============================================================================
-// MOTOR DE INTELIGENCIA ARTIFICIAL REAL (LLM API + RAG FAQs + CONVERSACIÓN NATURAL)
-// ============================================================================
-function buildSystemPromptWithFaqs() {
-  const activeFaqs = faqsState.filter(f => f.estadoActivo);
-  const faqText = activeFaqs.map(f => {
-    const resp = f.respuestas?.[0]?.textoRespuesta || 'Sin respuesta';
-    return `- Categoría [${f.categoria}] | Pregunta: ${f.textoPregunta} -> Respuesta Oficial: ${resp}`;
-  }).join('\n');
-
-  return `Eres NexusAI, un asistente virtual inteligente de atención al usuario, muy amable, empático, natural y capaz de responder cualquier pregunta.
-Usuario actual: ${currentUser ? currentUser.nombre + ' (' + currentUser.rol + ')' : 'Visitante'}.
-
-BASE DE CONOCIMIENTO OFICIAL DE LA EMPRESA (FAQs):
-${faqText || 'No hay FAQs activas.'}
-
-INSTRUCCIONES:
-1. Si el usuario te saluda ("hola", "buenos días", "cómo estás", "qué tal") o conversa casualmente, respóndele con calidez, naturalidad y simpatía.
-2. Si el usuario pregunta algo relacionado con las FAQs de la empresa (horarios, contraseñas, pagos, PSE, tarjetas, reembolsos, PQR, quejas o soporte), utiliza los datos exactos de la BASE DE CONOCIMIENTO OFICIAL.
-3. Si el usuario te pregunta sobre CUALQUIER OTRO TEMA (cultura general, programación, matemáticas, consejos, redacción, ciencia, chistes, etc.), respóndele de forma completa, inteligente y útil como un asistente de IA avanzado.
-4. Responde siempre en español y usa negritas (**texto**) para resaltar ideas clave.`;
-}
-
-function detectMatchingFaqCategory(userMessage) {
-  const clean = str => str.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  const query = clean(userMessage);
-  const activeFaqs = faqsState.filter(f => f.estadoActivo);
-  const stopWords = new Set(['como', 'cual', 'cuales', 'donde', 'cuando', 'para', 'puedo', 'tienen', 'estan', 'hacer', 'sobre', 'este', 'esta', 'hola', 'buenos', 'buenas']);
-  const tokens = query.replace(/[¿?¡!.,;:]/g, '').split(/\s+/).filter(w => w.length >= 4 && !stopWords.has(w));
-
-  let bestFaq = null;
-  let bestScore = 0;
-
-  for (const faq of activeFaqs) {
-    const hay = clean(`${faq.textoPregunta} ${faq.categoria}`);
-    let score = 0;
-    for (const t of tokens) {
-      if (hay.includes(t)) score += 3;
-    }
-    if (score > bestScore) {
-      bestScore = score;
-      bestFaq = faq;
-    }
-  }
-  return bestScore >= 3 && bestFaq ? bestFaq : null;
-}
-
-async function generateSmartAiResponse(userMessage, conversationHistory = []) {
-  const systemPrompt = buildSystemPromptWithFaqs();
-  const matchedFaq = detectMatchingFaqCategory(userMessage);
-
-  // Construir historial reciente (últimos 6 mensajes) para que el chatbot tenga memoria conversacional
-  const recentMessages = conversationHistory.slice(-6).map(m => ({
-    role: m.role === 'user' ? 'user' : 'assistant',
-    content: m.content
-  }));
-
-  // 1. Si el usuario configuró su propia API Key de Google Gemini
-  if (aiConfig.provider === 'gemini' && aiConfig.apiKey) {
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(aiConfig.apiKey)}`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: systemPrompt }] },
-          contents: recentMessages.map(m => ({
-            role: m.role === 'assistant' ? 'model' : 'user',
-            parts: [{ text: m.content }]
-          })),
-          generationConfig: { temperature: 0.4, maxOutputTokens: 800 }
-        })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (text) return { category: matchedFaq?.categoria || 'Google Gemini API', reply: text.trim() };
-      }
-    } catch (e) {
-      console.warn('Error invocando Gemini directo, pasando a LLM gratuito...', e);
-    }
-  }
-
-  // 2. Si el usuario configuró su propia API Key de OpenAI
-  if (aiConfig.provider === 'openai' && aiConfig.apiKey) {
-    try {
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${aiConfig.apiKey}`
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [{ role: 'system', content: systemPrompt }, ...recentMessages],
-          temperature: 0.4
-        })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const text = data?.choices?.[0]?.message?.content;
-        if (text) return { category: matchedFaq?.categoria || 'OpenAI GPT-4o', reply: text.trim() };
-      }
-    } catch (e) {
-      console.warn('Error invocando OpenAI directo, pasando a LLM gratuito...', e);
-    }
-  }
-
-  // 3. API de IA Gratuita sin necesidad de API Key (Pollinations OpenAI Endpoint)
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000);
-
-    const res = await fetch('https://text.pollinations.ai/openai', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model: 'openai',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          ...recentMessages
-        ],
-        temperature: 0.45
-      })
+    const fragment = DOMPurify.sanitize(markdownParser.parse(content), {
+      ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'del', 'ul', 'ol', 'li', 'blockquote', 'code', 'pre', 'a', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td'],
+      ALLOWED_ATTR: ['href', 'title', 'start'],
+      ALLOW_DATA_ATTR: false, ALLOW_ARIA_ATTR: false, RETURN_DOM_FRAGMENT: true
     });
-    clearTimeout(timeoutId);
-
-    if (res.ok) {
-      const data = await res.json();
-      const text = data?.choices?.[0]?.message?.content;
-      if (text && text.trim().length > 0) {
-        return {
-          category: matchedFaq ? matchedFaq.categoria : 'IA Conversacional (LLM)',
-          reply: text.trim()
-        };
-      }
+    for (const link of fragment.querySelectorAll('a')) {
+      const href = link.getAttribute('href');
+      try {
+        const url = new URL(href || '', location.href);
+        if (!href || !['http:', 'https:', 'mailto:', 'tel:'].includes(url.protocol)) link.removeAttribute('href');
+        else if (['http:', 'https:'].includes(url.protocol)) {
+          // Only constant safe attributes are added after sanitization.
+          link.setAttribute('target', '_blank'); link.setAttribute('rel', 'noopener noreferrer');
+        }
+      } catch (_) { link.removeAttribute('href'); }
     }
-  } catch (err) {
-    console.warn('API LLM en la nube sin conexión, usando motor conversacional local:', err);
-  }
-
-  // 4. Motor Conversacional Local Inteligente (por si el PC no tiene internet)
-  return runOfflineConversationalEngine(userMessage, matchedFaq);
+    body.classList.add('markdown-body'); body.append(fragment);
+  } catch (_) { body.textContent = content; }
+  return body;
+}
+async function copyReply(content, control) {
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+    await navigator.clipboard.writeText(content);
+    control.setAttribute('aria-label', 'Copiado'); showToast('Respuesta copiada.');
+    setTimeout(() => { if (control.isConnected) control.setAttribute('aria-label', 'Copiar respuesta'); }, 2000);
+  } catch (_) { showToast('No se pudo acceder al portapapeles. Seleccione el texto de la respuesta para copiarlo.'); }
 }
 
-function runOfflineConversationalEngine(userMessage, matchedFaq) {
-  const clean = str => str.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-  const q = clean(userMessage);
-  const activeFaqs = faqsState.filter(f => f.estadoActivo);
-  const userName = currentUser ? ` **${currentUser.nombre}**` : '';
-
-  // 1. Si coincide con una FAQ de la Base de Datos
-  if (matchedFaq) {
-    const answer = matchedFaq.respuestas?.[0]?.textoRespuesta || '';
-    return {
-      category: matchedFaq.categoria,
-      reply: `${answer}\n\n¿Te gustaría conocer algo más sobre **${matchedFaq.categoria}** o tienes otra inquietud?`
-    };
-  }
-
-  // 2. Saludos y charla casual ("hola", "como estas", "buenos dias", "que tal")
-  if (/^(hola|buenas|buenos dias|buenas tardes|buenas noches|hey|saludos|que tal|hola como estas|como vas|como estas)\b/.test(q)) {
-    return {
-      category: 'Conversación Natural',
-      reply: `¡Hola${userName}! Qué gusto saludarte. Estoy funcionando al 100% y listo para ayudarte.\n\nPuedes preguntarme tanto por nuestros **servicios oficiales** (horarios, pagos, reembolsos, contraseñas, PQR) como hacerme **cualquier pregunta general** o conversar conmigo. ¿Cómo te puedo ayudar hoy?`
-    };
-  }
-
-  // 3. Preguntas sobre el estado o identidad del bot ("quien eres", "que puedes hacer", "como te llamas")
-  if (/(quien eres|como te llamas|que eres|que puedes hacer|para que sirves|tu nombre)/.test(q)) {
-    return {
-      category: 'Identidad del Asistente',
-      reply: `Soy **NexusAI**, un Chatbot Inteligente de Atención al Usuario desarrollado con arquitectura **.NET 8 Web API, Entity Framework Core, SQL Server y Modelos de Lenguaje (LLM)**.\n\nEstoy entrenado con **${activeFaqs.length} preguntas frecuentes activas** en nuestra Base de Conocimiento y además puedo conversar contigo sobre cualquier tema que necesites.`
-    };
-  }
-
-  // 4. Agradecimientos y despedidas ("gracias", "muchas gracias", "adios", "chao", "hasta luego")
-  if (/(gracias|muchas gracias|mil gracias|te lo agradezco|genial|excelente|perfecto)/.test(q)) {
-    return {
-      category: 'Conversación Natural',
-      reply: `¡Con muchísimo gusto${userName}! Me alegra haberte sido de ayuda. Si necesitas cualquier otra cosa, aquí estaré disponible las 24 horas.`
-    };
-  }
-
-  if (/(adios|chao|hasta luego|nos vemos|bye|feliz dia|feliz noche)/.test(q)) {
-    return {
-      category: 'Conversación Natural',
-      reply: `¡Hasta pronto${userName}! Que tengas un excelente día. Cuando quieras volver a conversar, aquí estaré.`
-    };
-  }
-
-  // 5. Chistes o humor
-  if (/(chiste|cuentame algo gracioso|hazme reir)/.test(q)) {
-    return {
-      category: 'Conversación Natural',
-      reply: `¡Claro! Ahí va uno de desarrolladores:\n\n— *¿Por qué los programadores de C# prefieren el modo oscuro?*\n— *¡Porque la luz atrae a los bugs!* 🐛😄\n\n¿En qué más te puedo colaborar hoy?`
-    };
-  }
-
-  // 6. Operaciones matemáticas simples (ej: "cuanto es 25 * 4")
-  const mathMatch = q.match(/(\d+)\s*([\+\-\*\/x])\s*(\d+)/);
-  if (mathMatch) {
-    const a = parseFloat(mathMatch[1]);
-    const op = mathMatch[2];
-    const b = parseFloat(mathMatch[3]);
-    let res = 0;
-    if (op === '+') res = a + b;
-    if (op === '-') res = a - b;
-    if (op === '*' || op === 'x') res = a * b;
-    if (op === '/' && b !== 0) res = +(a / b).toFixed(2);
-    return {
-      category: 'Cálculo Directo',
-      reply: `El resultado de **${a} ${op} ${b}** es **${res}**.\n\n¿Te ayudo con alguna otra consulta?`
-    };
-  }
-
-  // 7. Respuesta amigable y abierta cuando está sin internet y es otro tema
-  return {
-    category: 'Asistente General',
-    reply: `¡Interesante consulta! Sobre *"${userMessage}"*, te cuento que puedo responderte tanto dudas generales como todo lo relacionado con nuestra plataforma.\n\nRecuerda que en nuestra Base de Conocimiento Oficial tengo información inmediata sobre:\n• **Horarios de atención**\n• **Restablecimiento de contraseña**\n• **Medios de pago (PSE, Tarjetas)**\n• **Tiempos de reembolso**\n• **Radicación de PQR**`
+function element(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = String(text);
+  return node;
+}
+function button(text, className, action) {
+  const node = element('button', className, text);
+  node.type = 'button';
+  node.addEventListener('click', action);
+  return node;
+}
+function chatIcon(name) {
+  const paths = {
+    chat: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z',
+    book: 'M12 5c-3-2-7-2-10-1v15c3-1 7-1 10 1 3-2 7-2 10-1V4c-3-1-7-1-10 1Zm0 0v15',
+    copy: 'M8 8h13v13H8ZM16 8V3H3v13h5',
+    like: 'M7 10h-4v11h4Zm0 0 5-8h2v8h6l-2 11H7Z',
+    dislike: 'M7 14H3V3h4Zm0 0 5 8h2v-8h6L18 3H7Z',
+    regenerate: 'M3 11a9 9 0 1 0 3-6L3 8m0-6v6h6',
+    arrow: 'M7 17 17 7M7 7h10v10'
   };
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS(svg.namespaceURI, 'path');
+  path.setAttribute('d', paths[name] || paths.chat); svg.append(path); return svg;
 }
-
-// Configurador de API Key de IA desde el Frontend
-function openAiSettingsModal() {
-  document.getElementById('ai-provider-select').value = aiConfig.provider || 'free-llm';
-  document.getElementById('ai-apikey-input').value = aiConfig.apiKey || '';
-  toggleApiKeyField();
-  const modal = document.getElementById('ai-settings-modal');
-  modal.classList.remove('hidden');
-  modal.classList.add('flex');
+function errorAt(id, message) {
+  const node = $(id);
+  node.textContent = message || '';
+  node.hidden = !message;
 }
-
-function closeAiSettingsModal() {
-  const modal = document.getElementById('ai-settings-modal');
-  modal.classList.add('hidden');
-  modal.classList.remove('flex');
+function report(message, source = 'general') {
+  $('app-error-text').textContent = message;
+  $('app-error').dataset.source = source;
+  $('app-error').hidden = false;
 }
-
-function toggleApiKeyField() {
-  const provider = document.getElementById('ai-provider-select').value;
-  const box = document.getElementById('ai-apikey-box');
-  if (provider === 'free-llm') {
-    box.classList.add('hidden');
-  } else {
-    box.classList.remove('hidden');
+function showToast(message) {
+  clearTimeout(toastTimer);
+  $('toast-container').textContent = message;
+  toastTimer = setTimeout(() => { $('toast-container').textContent = ''; }, 6000);
+}
+function readStored(key, validate, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw === null) return fallback;
+    const value = JSON.parse(raw);
+    if (!validate(value)) throw new Error('Formato inválido');
+    return value;
+  } catch (_) {
+    report('No se pudo leer el almacenamiento local. Se conservaron los datos originales; esta página usará una copia temporal en memoria.');
+    unreadableKeys.add(key);
+    return fallback;
   }
 }
-
-function saveAiSettings(e) {
-  e.preventDefault();
-  aiConfig = {
-    provider: document.getElementById('ai-provider-select').value,
-    apiKey: document.getElementById('ai-apikey-input').value.trim()
-  };
-  localStorage.setItem('chatbot_v2_aiconfig', JSON.stringify(aiConfig));
-  closeAiSettingsModal();
-  showToast('Motor de Inteligencia Artificial actualizado', 'emerald');
-}
-
-function showTypingIndicator(show) {
-  const indicator = document.getElementById('typing-indicator');
-  const container = document.getElementById('chat-scroll-container');
-  if (show) {
-    indicator.classList.remove('hidden');
-    scrollToBottom(container);
-  } else {
-    indicator.classList.add('hidden');
+const unreadableKeys = new Set();
+function store(key, value) {
+  if (unreadableKeys.has(key)) {
+    report('No se sobrescribió el almacenamiento dañado. Los cambios solo están en memoria; exporte la bitácora antes de cerrar.');
+    return false;
   }
+  try { localStorage.setItem(key, JSON.stringify(value)); return true; }
+  catch (_) { report('El navegador no pudo guardar los datos. Los cambios solo están en memoria; exporte la bitácora antes de cerrar.'); return false; }
 }
-
-function copyBotResponse(idx) {
-  const session = getCurrentSession();
-  const msg = session.messages[idx];
-  if (!msg) return;
-  navigator.clipboard.writeText(msg.content);
-  showToast('Respuesta copiada al portapapeles', 'indigo');
-}
-
-function rateResponse(btn, type) {
-  btn.className = type === 'up' ? 'text-emerald-400 scale-110 transition' : 'text-rose-400 scale-110 transition';
-  showToast('¡Gracias por calificar la respuesta del asistente!', 'emerald');
-}
-
-// ============================================================================
-// MÓDULO 2 Y 3: BASE DE CONOCIMIENTO (CRUD DE PREGUNTAS Y RESPUESTAS)
-// ============================================================================
-function renderFaqsView() {
-  const searchVal = (document.getElementById('faq-search-input')?.value || '').toLowerCase();
-  const categories = ['Todas', ...new Set(faqsState.map(f => f.categoria))];
-
-  // Renderizar filtros de categoría
-  const filterBar = document.getElementById('faq-category-pills');
-  if (filterBar) {
-    filterBar.innerHTML = categories.map(cat => {
-      const active = selectedFaqCategory === cat;
-      return `
-        <button
-          onclick="setFaqCategoryFilter('${escapeHtml(cat)}')"
-          class="px-3.5 py-1.5 rounded-xl text-xs font-semibold transition ${
-            active
-              ? 'bg-indigo-600 text-white shadow-sm'
-              : 'bg-slate-800/80 text-slate-400 hover:text-white border border-slate-700/70'
-          }"
-        >
-          ${escapeHtml(cat)}
-        </button>
-      `;
-    }).join('');
-  }
-
-  const filtered = faqsState.filter(f => {
-    const matchesCat = selectedFaqCategory === 'Todas' || f.categoria === selectedFaqCategory;
-    const resp = f.respuestas?.[0]?.textoRespuesta || '';
-    const matchesSearch = !searchVal ||
-      f.textoPregunta.toLowerCase().includes(searchVal) ||
-      f.categoria.toLowerCase().includes(searchVal) ||
-      resp.toLowerCase().includes(searchVal);
-    return matchesCat && matchesSearch;
+const validFaqs = value => Array.isArray(value) && value.every(f => f && Number.isInteger(f.id) && typeof f.textoPregunta === 'string' && typeof f.categoria === 'string' && typeof f.estadoActivo === 'boolean' && Array.isArray(f.respuestas) && f.respuestas.every(r => r && typeof r.textoRespuesta === 'string'));
+const validSessions = value => Array.isArray(value) && value.every(s => s && typeof s.sessionId === 'string' && typeof s.title === 'string' && Array.isArray(s.messages) && s.messages.every(m => m && typeof m.content === 'string' && ['user', 'bot'].includes(m.role) && typeof m.timestamp === 'string'));
+const validHistory = value => Array.isArray(value) && value.every(c => c && typeof c.sessionId === 'string' && typeof c.preguntaUsuario === 'string' && typeof c.respuestaBot === 'string' && typeof c.timestamp === 'string');
+function cacheKey(part) { return `nexus_v3_${mode}_${currentUser?.usuarioId || 'visitor'}_${part}`; }
+function saveSessions() { if (mode !== 'unselected') store(cacheKey('sessions'), sessionsState); }
+function saveHistory() { store(cacheKey('history'), conversationsDb); }
+function newGuid() {
+  return crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const bytes = crypto.getRandomValues(new Uint8Array(1));
+    const r = bytes[0] & 15;
+    return (c === 'x' ? r : (r & 3) | 8).toString(16);
   });
+}
+function loadScope() {
+  $('conversation-search').value = '';
+  sessionsState = readStored(cacheKey('sessions'), validSessions, []);
+  conversationsDb = readStored(cacheKey('history'), validHistory, []);
+  currentSessionId = sessionsState[0]?.sessionId || null;
+  if (!currentSessionId) createNewSession(false);
+}
+function getCurrentSession() { return sessionsState.find(s => s.sessionId === currentSessionId); }
+function isAdmin() { return mode !== 'unselected' && currentUser?.rol === 'Admin'; }
+function canView(view) { return ['chat', 'help'].includes(view) || (['faqs', 'sql'].includes(view) && isAdmin()); }
+function publicFaqs() { return faqsState.filter(f => f.estadoActivo); }
 
-  const grid = document.getElementById('faqs-cards-grid');
-  if (!grid) return;
-
-  if (filtered.length === 0) {
-    grid.innerHTML = `
-      <div class="col-span-full glass-card rounded-2xl p-10 text-center text-slate-400">
-        <i class="fa-solid fa-folder-open text-3xl text-slate-600 mb-3"></i>
-        <p class="text-sm font-medium">No se encontraron preguntas frecuentes con ese criterio.</p>
-      </div>
-    `;
-    return;
+function setSidebarOpen(open, focus = true) {
+  const mobile = window.matchMedia('(max-width: 720px)').matches;
+  const wasOpen = sidebarOpen;
+  sidebarOpen = Boolean(open);
+  $('app-layout').classList.toggle('drawer', mobile && sidebarOpen);
+  $('app-layout').classList.toggle('collapsed', !mobile && !sidebarOpen);
+  $('sidebar-toggle').setAttribute('aria-expanded', String(sidebarOpen));
+  $('app-stage').inert = mobile && sidebarOpen;
+  if (focus) {
+    if (sidebarOpen) $('sidebar-close').focus();
+    else if (wasOpen) $('sidebar-toggle').focus();
   }
-
-  grid.innerHTML = filtered.map(faq => {
-    const respObj = faq.respuestas?.[0] || {};
-    const updatedDate = respObj.ultimaActualizacion
-      ? new Date(respObj.ultimaActualizacion).toLocaleDateString('es-CO')
-      : 'Hoy';
-
-    return `
-      <div class="glass-card rounded-2xl p-5 flex flex-col justify-between gap-4">
-        <div>
-          <div class="flex items-center justify-between gap-2 mb-3">
-            <span class="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
-              ${escapeHtml(faq.categoria)}
-            </span>
-            <div class="flex items-center gap-2">
-              <span class="text-[11px] font-mono text-slate-500">ID #${faq.id}</span>
-              ${faq.estadoActivo
-                ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">ACTIVO</span>'
-                : '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-700 text-slate-400">INACTIVO</span>'}
-            </div>
-          </div>
-
-          <h4 class="font-display font-bold text-white text-base mb-2 leading-snug">
-            ${escapeHtml(faq.textoPregunta)}
-          </h4>
-          <p class="text-xs text-slate-300 leading-relaxed bg-slate-900/60 p-3.5 rounded-xl border border-slate-800">
-            ${escapeHtml(respObj.textoRespuesta || 'Sin respuesta registrada')}
-          </p>
-        </div>
-
-        <div class="flex items-center justify-between pt-3 border-t border-slate-800/80 text-xs">
-          <span class="text-[11px] text-slate-500">
-            <i class="fa-regular fa-clock mr-1"></i> Actualizado: ${updatedDate}
-          </span>
-          <div class="flex items-center gap-1.5">
-            <button
-              onclick="sendPredefinedPrompt(${JSON.stringify(faq.textoPregunta).replace(/"/g, '&quot;')}); switchWorkspaceView('chat');"
-              class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-indigo-600/30 text-indigo-300 text-xs font-medium transition"
-              title="Probar en el chat"
-            >
-              <i class="fa-solid fa-play text-[10px] mr-1"></i> Probar
-            </button>
-            <button
-              onclick="openFaqEditor(${faq.id})"
-              class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
-              title="Editar Pregunta/Respuesta"
-            >
-              <i class="fa-solid fa-pen text-xs"></i>
-            </button>
-            <button
-              onclick="handleDeleteFaq(${faq.id})"
-              class="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-600/30 text-slate-400 hover:text-rose-300 transition"
-              title="Eliminar FAQ"
-            >
-              <i class="fa-solid fa-trash text-xs"></i>
-            </button>
-          </div>
-        </div>
-      </div>
-    `;
-  }).join('');
+}
+function closeMobileSidebar() {
+  if (window.matchMedia('(max-width: 720px)').matches) setSidebarOpen(false, false);
 }
 
-function setFaqCategoryFilter(category) {
-  selectedFaqCategory = category;
-  renderFaqsView();
+function switchView(view, focus = true) {
+  if (!canView(view)) view = view === 'faqs' ? 'help' : 'chat';
+  closeMobileSidebar();
+  currentView = view;
+  const adminArea = ['faqs', 'sql'].includes(view) && isAdmin();
+  $('admin-shell').hidden = !adminArea;
+  $('admin-navigation').hidden = !adminArea;
+  document.body.dataset.workspace = adminArea ? 'admin' : 'user';
+  document.body.dataset.view = view;
+  $('admin-entry').classList.toggle('active', adminArea);
+  for (const name of ['chat', 'help', 'faqs', 'sql']) {
+    $(`view-${name}`).hidden = name !== view;
+    $(`tab-${name}`).classList.toggle('active', name === view);
+    if (name === view) $(`tab-${name}`).setAttribute('aria-current', 'page');
+    else $(`tab-${name}`).removeAttribute('aria-current');
+  }
+  if (location.hash !== `#${view}`) history.replaceState(null, '', `#${view}`);
+  if (focus) $({ chat: 'chat-title', help: 'help-title', faqs: 'faqs-title', sql: 'history-title' }[view]).focus();
+}
+function syncControls() {
+  const locked = chatBusy || operationBusy || checking;
+  $('send-button').disabled = mode === 'unselected' || locked;
+  $('send-label').textContent = chatBusy ? 'Procesando…' : 'Enviar';
+  $('chat-input').disabled = mode === 'unselected' || chatBusy;
+  $('chat-form').setAttribute('aria-busy', String(chatBusy));
+  $('typing-row').hidden = !chatBusy;
+  for (const id of ['retry-connection', 'enter-demo', 'profile-action-btn', 'settings-button', 'chat-settings']) $(id).disabled = locked;
+  $('retry-connection').disabled = locked || !API_BASE;
+  $('retry-connection').textContent = checking ? 'Conectando…' : 'Reintentar';
+  $('enter-demo').hidden = mode === 'demo';
+  $('demo-active').hidden = mode !== 'demo';
+  $('add-faq').hidden = !isAdmin();
+  $('add-faq').disabled = locked;
+  $('new-session').disabled = mode === 'unselected' || operationBusy || checking;
+  $('clear-history').disabled = !isAdmin() || locked || !conversationsDb.length;
+  $('export-history').disabled = !isAdmin() || !conversationsDb.length;
+  $('admin-entry').hidden = !isAdmin();
+  $('admin-entry').disabled = locked;
+  document.querySelectorAll('[data-mutation], .topic-button, [data-delete-session]').forEach(node => { node.disabled = locked || mode === 'unselected'; });
+}
+function renderConnection() {
+  const status = $('connection-status');
+  status.hidden = false;
+  status.className = `badge ${mode === 'demo' ? 'demo' : connection === 'available' ? 'available' : checking ? '' : 'unavailable'}`;
+  status.textContent = mode === 'demo' ? 'Demo local' : checking ? 'Comprobando…' : connection === 'available' ? 'API disponible' : 'Sin conexión';
+  status.title = mode === 'demo' ? 'Demostración local, no es una conexión al servidor.' : 'La disponibilidad de FAQs no garantiza la del proveedor de IA.';
+  $('connection-banner').hidden = mode !== 'unselected';
+  $('connection-public-message').textContent = checking ? 'Preparando el chat…' : 'El servicio no está disponible. Reintente o elija Modo demostración en el menú, sin envíos externos.';
+  $('connection-message').textContent = checking ? 'Comprobando disponibilidad de la API…' : mode === 'demo'
+    ? 'Demo elegida: datos separados del servidor. No se sincronizan automáticamente. Por defecto solo se usan FAQs locales, sin envíos externos.'
+    : connection === 'available'
+      ? 'La API de preguntas frecuentes está disponible; esto no garantiza la disponibilidad del servicio de IA. El chat enviado a la API se procesa en el servidor y puede usar un proveedor externo. No comparta datos sensibles.'
+      : 'La API no está disponible o no se pudo comprobar. Puede reintentar o elegir la demo local. No se simularán guardados ni inicios de sesión reales.';
+  syncControls();
+}
+function collapseConnectionDetails() {
+  const details = $('connection-details');
+  const restore = details.contains(document.activeElement);
+  details.open = false;
+  if (restore) details.querySelector('summary').focus();
+}
+function updateUserBar() {
+  const name = currentUser?.nombre || 'Visitante';
+  $('profile-name').textContent = name; $('profile-name').hidden = false;
+  $('profile-role').textContent = currentUser ? `${currentUser.rol === 'Admin' ? 'Administrador' : 'Usuario'}${mode === 'demo' ? ' de demostración' : ''}` : 'Sin iniciar sesión';
+  $('profile-action-btn').setAttribute('aria-label', currentUser ? 'Cerrar sesión' : 'Iniciar sesión');
+  $('profile-action-btn').title = currentUser ? 'Cerrar sesión' : 'Iniciar sesión';
+  for (const avatar of document.querySelectorAll('.user-avatar')) avatar.textContent = name.trim().split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase();
+  $('welcome-title').textContent = `¡Hola, ${name.split(' ')[0]}!`;
+}
+function renderAll() {
+  if (!isAdmin()) {
+    faqsState = publicFaqs();
+    aiConfig = { provider: 'local', apiKey: '', consent: false };
+    for (const id of ['faq-modal', 'settings-modal']) if ($(id).open) closeDialog(id, true);
+    $('faq-form').reset(); $('edit-faq-id').value = ''; $('faq-search-input').value = '';
+    $('settings-form').reset(); $('ai-apikey-input').value = '';
+    errorAt('faq-error', ''); errorAt('settings-error', ''); $('faq-sync-warning').hidden = true;
+    selectedFaqCategory = 'Todas';
+  }
+  switchView(currentView, false);
+  updateUserBar(); renderConnection(); renderQuickTopics(); renderSessionsList();
+  renderChatMessages(true); renderHelp(); renderFaqsTable(); renderHistoryTable(); syncControls();
 }
 
-function openFaqEditor(id = null) {
-  if (!currentUser || currentUser.rol !== 'Admin') {
-    showToast('Se requiere Rol Administrador (JWT) para gestionar las FAQs', 'amber');
-    openAuthModal();
-    return;
+class ServiceError extends Error {
+  constructor(message, status = 0, fields = {}) { super(message); this.status = status; this.fields = fields; }
+}
+async function request(url, options = {}, timeout = 35000) {
+  const waitUntil = retryAfterUntil.get(url) || 0;
+  if (waitUntil > Date.now()) throw new ServiceError(`Limite temporal activo. Espere ${Math.ceil((waitUntil - Date.now()) / 1000)} segundos antes de reintentar.`, 429);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    const text = await response.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch (_) { /* Handled below without displaying server HTML. */ }
+    if (!response.ok) {
+      const descriptions = {
+        400: 'Revise los datos enviados.', 401: 'Su acceso no es válido o expiró. Inicie sesión nuevamente.',
+        403: 'No tiene permisos para realizar esta acción.', 404: 'El recurso ya no existe. Actualice la vista.',
+        409: 'Los datos entraron en conflicto. Compruebe el estado antes de continuar.', 422: 'Revise los datos enviados.',
+        429: 'Se alcanzó el límite de solicitudes.'
+      };
+      let message = descriptions[response.status] || 'El servicio no pudo completar la operación. No se guardó una copia demo.';
+      if (response.status === 429) {
+        const retryAfter = response.headers.get('Retry-After');
+        const until = retryAfter && /^\d+$/.test(retryAfter) ? Date.now() + Number(retryAfter) * 1000 : Date.parse(retryAfter || '');
+        if (Number.isFinite(until) && until > Date.now()) retryAfterUntil.set(url, until);
+        message += ` Reintente más tarde${retryAfter ? ` (Retry-After: ${retryAfter})` : ''}.`;
+      }
+      const fields = data?.errors && typeof data.errors === 'object' ? data.errors : {};
+      if ([400, 422].includes(response.status)) message += ' ' + Object.values(fields).flat().filter(v => typeof v === 'string').join(' ');
+      if (response.status === 401 && mode === 'api' && currentUser) {
+        currentUser = null; loadScope(); renderAll();
+        report('Su sesión finalizó. Inicie sesión nuevamente para continuar.', 'auth');
+      }
+      throw new ServiceError(message, response.status, fields);
+    }
+    if (text && data === null) throw new ServiceError('El servidor devolvió una respuesta no válida. Compruebe el estado antes de repetir una operación.');
+    return data;
+  } catch (error) {
+    if (error instanceof ServiceError) throw error;
+    if (mode === 'api' && url.startsWith('/api')) { connection = 'error'; renderConnection(); }
+    throw new ServiceError('No se obtuvo confirmación del servidor (red o tiempo de espera). Conserve sus datos y compruebe el estado antes de repetir; la operación pudo haberse aplicado.');
+  } finally { clearTimeout(timer); }
+}
+function apiOptions(method, payload) {
+  const headers = {};
+  if (payload !== undefined) headers['Content-Type'] = 'application/json';
+  if (mode === 'api' && currentUser?.token) headers.Authorization = `Bearer ${currentUser.token}`;
+  return { method, headers, ...(payload === undefined ? {} : { body: JSON.stringify(payload) }) };
+}
+async function checkConnection() {
+  if (!API_BASE || checking || chatBusy || operationBusy) return;
+  checking = true; renderConnection();
+  try {
+    const data = await request(`${API_BASE}/faqs`, apiOptions('GET'), 10000);
+    if (!validFaqs(data)) throw new ServiceError('El directorio recibido no tiene el formato esperado.');
+    if (mode !== 'api') {
+      currentUser = null; aiConfig = { provider: 'local', apiKey: '', consent: false };
+      mode = 'api'; loadScope();
+    }
+    faqsState = data; faqLoadError = false; connection = 'available';
+    collapseConnectionDetails();
+    if ($('app-error').dataset.source === 'connection') $('app-error').hidden = true;
+    if (isAdmin()) showToast('Conexión con el servidor comprobada.');
+  } catch (error) {
+    connection = 'error';
+    if (mode === 'unselected' || mode === 'api') faqLoadError = true;
+    if (isAdmin()) report(error.message, 'connection');
+  } finally { checking = false; renderAll(); }
+}
+async function enterDemo() {
+  if (chatBusy || operationBusy || checking) return;
+  if (!await confirmAction('Probar la demo', 'Puede explorar el chat con preguntas de ejemplo. Los datos se guardan solo en este navegador y no se envían a servicios externos. Es una demostración, no una sesión del servicio real.', 'Probar demo')) return;
+  mode = 'demo'; currentUser = null; connection = 'demo'; selectedFaqCategory = 'Todas'; faqLoadError = false;
+  if ($('app-error').dataset.source === 'connection') $('app-error').hidden = true;
+  aiConfig = { provider: 'local', apiKey: '', consent: false };
+  faqsState = readStored('nexus_v3_demo_faqs', validFaqs, structuredClone(seedFaqs));
+  loadScope(); renderAll(); collapseConnectionDetails(); closeMobileSidebar(); showToast('Demo local activada, sin conexión externa.');
+}
+
+function createNewSession(focus = true) {
+  $('conversation-search').value = '';
+  const sessionId = newGuid();
+  sessionsState.unshift({ sessionId, title: 'Consulta general', messages: [{ role: 'bot', content: '**Hola.** Cuénteme qué necesita y le ayudo a encontrar una respuesta.', timestamp: new Date().toISOString() }] });
+  currentSessionId = sessionId; saveSessions();
+  renderSessionsList(); renderChatMessages(true);
+  if (focus) { switchView('chat', false); closeMobileSidebar(); $('chat-input').focus(); }
+}
+function renderSessionsList() {
+  const list = $('sessions-list'); list.replaceChildren();
+  const query = normalize($('conversation-search').value.trim());
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
+  const sessionDate = session => {
+    const stamp = session.messages.at(-1)?.timestamp;
+    const value = Date.parse(stamp || ''); return Number.isFinite(value) ? value : today.getTime();
+  };
+  const matches = sessionsState.filter(session => normalize(session.title).includes(query));
+  for (const [group, label] of ['Hoy', 'Ayer', 'Anteriores'].entries()) {
+    const entries = matches.filter(session => {
+      const date = sessionDate(session); return (date >= today ? 0 : date >= yesterday ? 1 : 2) === group;
+    }).sort((a, b) => sessionDate(b) - sessionDate(a));
+    if (!entries.length) continue;
+    list.append(element('p', 'section-label', label));
+    for (const session of entries) {
+    const row = element('div', `session-row${session.sessionId === currentSessionId ? ' active' : ''}`);
+    const select = button('', 'session-select', () => {
+      currentSessionId = session.sessionId; switchView('chat', false); renderSessionsList(); renderChatMessages(true);
+      closeMobileSidebar(); $('chat-input').focus();
+    });
+    select.dataset.session = session.sessionId;
+    select.append(chatIcon('chat'), element('span', 'session-title', session.title));
+    select.setAttribute('aria-label', session.title);
+    select.setAttribute('aria-pressed', String(session.sessionId === currentSessionId));
+    const remove = button('×', 'btn btn-danger', async () => {
+      if (chatBusy || operationBusy || checking) return;
+      if (!await confirmAction('Quitar conversación', `Se quitará «${session.title}» de esta lista del navegador. Esta acción no elimina registros del servicio.`, 'Quitar conversación')) return;
+      sessionsState = sessionsState.filter(s => s !== session);
+      if (currentSessionId === session.sessionId) currentSessionId = sessionsState[0]?.sessionId || null;
+      if (!currentSessionId) createNewSession(false);
+      saveSessions(); renderSessionsList(); renderChatMessages(true);
+    });
+    remove.setAttribute('aria-label', `Eliminar conversación local: ${session.title}`);
+    remove.dataset.deleteSession = ''; remove.disabled = chatBusy || operationBusy || checking;
+    row.append(select, remove); list.append(row);
+    }
   }
+  if (!matches.length) empty(list, query ? 'No hay coincidencias.' : 'Sin conversaciones en este navegador.');
+}
+function empty(container, text) { container.append(element('p', 'empty-state', text)); }
+function renderQuickTopics() {
+  const container = $('quick-topics-list'); container.replaceChildren();
+  const welcomeTopics = $('welcome-topics'); welcomeTopics.replaceChildren();
+  const active = faqsState.filter(f => f.estadoActivo);
+  const found = active.slice(0, 4);
+  $('faq-count-label').textContent = `${active.length} disponibles`;
+  if (!found.length) empty(container, faqLoadError ? 'La ayuda no está disponible en este momento.' : mode === 'unselected' ? 'Conecte el servicio o pruebe la demo.' : 'Pronto encontrará preguntas frecuentes aquí.');
+  for (const faq of found) {
+    const node = button('', 'topic-button', () => {
+      if (chatBusy || operationBusy || checking) return;
+      closeDialog('knowledge-modal'); switchView('chat', false);
+      $('chat-input').value = faq.textoPregunta; $('chat-form').requestSubmit();
+    });
+    node.append(element('span', '', faq.textoPregunta));
+    node.disabled = chatBusy || operationBusy || checking || mode === 'unselected';
+    container.append(node);
+    const suggestion = button('', 'topic-button suggestion-card', () => {
+      if (chatBusy || operationBusy || checking || mode === 'unselected') return;
+      $('chat-input').value = faq.textoPregunta; $('chat-form').requestSubmit();
+    });
+    const tag = element('span', 'tagicon'); tag.append(chatIcon('book'));
+    const arrow = element('span', 'suggestion-arrow'); arrow.append(chatIcon('arrow'));
+    const words = element('span', 'words'); words.append(element('strong', '', faq.textoPregunta), element('small', '', faq.categoria));
+    suggestion.append(tag, arrow, words);
+    suggestion.disabled = node.disabled;
+    welcomeTopics.append(suggestion);
+  }
+  if (!found.length) empty(welcomeTopics, faqLoadError ? 'Conecte el servicio para ver las preguntas disponibles.' : 'Las preguntas disponibles aparecerán aquí.');
+}
+function renderChatMessages(forceScroll = false) {
+  const box = $('chat-scroll-box');
+  const nearBottom = box.scrollHeight - box.clientHeight - box.scrollTop < 70;
+  const previousScroll = box.scrollTop;
+  const container = $('chat-messages-container'); container.replaceChildren();
+  const session = getCurrentSession();
+  $('chat-welcome').hidden = Boolean(session?.messages.some(message => message.role === 'user'));
+  if (!session) { empty(container, 'Su conversación aparecerá aquí cuando el servicio esté listo o pruebe la demo.'); return; }
+  for (const message of session.messages) {
+    const row = element('article', `msg-row ${message.role === 'user' ? 'user' : 'bot'}`);
+    // v0 shows the welcome panel instead of a duplicate initial greeting.
+    row.hidden = !$('chat-welcome').hidden && message.role === 'bot';
+    const meta = element('div', 'message-meta');
+    const date = new Date(message.timestamp);
+    const time = element('time', '', Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }));
+    if (!Number.isNaN(date.getTime())) time.dateTime = date.toISOString();
+    if (message.role === 'bot') {
+      const logo = element('img'); logo.src = 'images/nexusai/mark.svg'; logo.alt = ''; logo.width = 24; logo.height = 24; meta.append(logo);
+    }
+    meta.append(element('strong', '', message.role === 'user' ? message.author || 'Tú' : 'NexusAI'), time);
+    row.append(meta, message.role === 'bot' ? renderReply(message.content) : element('div', 'message-body', message.content));
+    if (message.role === 'bot') {
+      const actions = element('div', 'message-actions');
+      const copy = button('', 'icon copy-reply', () => copyReply(message.content, copy));
+      copy.setAttribute('aria-label', 'Copiar respuesta'); copy.title = 'Copiar respuesta'; copy.append(chatIcon('copy')); actions.append(copy);
+      for (const [icon, label] of [['like', 'Me gusta'], ['dislike', 'No me gusta'], ['regenerate', 'Regenerar respuesta']]) {
+        const unsupported = element('button', 'icon unavailable-action'); unsupported.type = 'button'; unsupported.disabled = true;
+        unsupported.setAttribute('aria-label', `${label}: no disponible`); unsupported.title = 'No disponible: NexusAI no tiene esta funcionalidad conectada.';
+        unsupported.append(chatIcon(icon)); actions.append(unsupported);
+      }
+      row.append(actions);
+    }
+    container.append(row);
+  }
+  // A new conversation starts at its welcome panel, not at the greeting below it.
+  box.scrollTop = !$('chat-welcome').hidden ? 0 : forceScroll || nearBottom ? box.scrollHeight : previousScroll;
+}
+async function handleChatSubmit(event) {
+  event.preventDefault();
+  if (mode === 'unselected' || chatBusy || operationBusy || checking) return;
+  const text = $('chat-input').value.trim();
+  if (!text || text.length > 1500) { errorAt('chat-error', 'Escriba una consulta de hasta 1500 caracteres.'); return; }
+  const session = getCurrentSession();
+  const startedMode = mode;
+  const author = currentUser?.nombre || 'Usuario';
+  const timestamp = new Date().toISOString();
+  chatBusy = true; errorAt('chat-error', ''); $('chat-input').removeAttribute('aria-invalid'); syncControls();
+  $('chat-announcement').textContent = 'Consulta enviada. Esperando respuesta.';
+  try {
+    let dto;
+    if (mode === 'api') {
+      dto = await request(`${API_BASE}/chat/send`, apiOptions('POST', { sessionId: session.sessionId, mensaje: text }));
+      if (!validHistory([dto])) throw new ServiceError('La respuesta recibida no es válida. Compruebe el historial antes de repetir la consulta.');
+    } else {
+      const reply = await generateDemoReply(text, session.messages);
+      dto = { conversacionId: Math.max(0, ...conversationsDb.map(c => Number(c.conversacionId) || 0)) + 1, sessionId: session.sessionId, usuarioId: currentUser?.usuarioId || null, preguntaUsuario: text, respuestaBot: reply, timestamp: new Date().toISOString() };
+    }
+    // Keep the result with the initiating session, not whichever session is now selected.
+    session.messages.push({ role: 'user', content: text, author, timestamp }, { role: 'bot', content: dto.respuestaBot, timestamp: dto.timestamp });
+    if (session.title === 'Consulta general') session.title = text;
+    if (mode === startedMode && sessionsState.includes(session)) {
+      conversationsDb.unshift(dto); saveSessions(); saveHistory(); renderSessionsList();
+      if (session.sessionId === currentSessionId) renderChatMessages();
+      renderHistoryTable();
+    }
+    $('chat-input').value = '';
+    $('chat-announcement').textContent = session.sessionId === currentSessionId ? `NexusAI: ${dto.respuestaBot}` : 'Se recibió una respuesta en la conversación de origen.';
+  } catch (error) {
+    errorAt('chat-error', error.message); $('chat-input').setAttribute('aria-invalid', 'true');
+    $('chat-announcement').textContent = 'No se pudo completar la consulta. El texto se conservó.';
+  } finally { chatBusy = false; syncControls(); }
+}
 
-  const modal = document.getElementById('faq-editor-modal');
-  const title = document.getElementById('faq-editor-title');
-  document.getElementById('edit-faq-id').value = id || '';
-
-  if (id) {
-    const faq = faqsState.find(f => f.id === id);
-    if (!faq) return;
-    title.textContent = `Editar Pregunta Frecuente #${id}`;
-    document.getElementById('edit-faq-categoria').value = faq.categoria;
-    document.getElementById('edit-faq-estado').value = String(faq.estadoActivo);
-    document.getElementById('edit-faq-pregunta').value = faq.textoPregunta;
-    document.getElementById('edit-faq-respuesta').value = faq.respuestas?.[0]?.textoRespuesta || '';
+function normalize(value) { return value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
+function searchFaqs(query, faqs, threshold = 0.35) {
+  const text = normalize(query.trim());
+  if (!text) return faqs;
+  const entries = faqs.map(faq => ({ faq, question: normalize(faq.textoPregunta), category: normalize(faq.categoria), answer: normalize(faq.respuestas[0]?.textoRespuesta || '') }));
+  if (typeof Fuse === 'undefined') return entries.filter(f => `${f.question} ${f.category} ${f.answer}`.includes(text)).map(f => f.faq);
+  const index = new Fuse(entries, {
+    keys: [{ name: 'question', weight: 0.65 }, { name: 'category', weight: 0.25 }, { name: 'answer', weight: 0.1 }],
+    threshold, ignoreLocation: true, minMatchCharLength: Math.min(2, text.length), shouldSort: true
+  });
+  return index.search(text).map(result => result.item.faq);
+}
+function findLocalFaq(text) {
+  const active = faqsState.filter(f => f.estadoActivo);
+  const query = normalize(text);
+  const exact = active.find(f => normalize(f.textoPregunta) === query);
+  if (exact) return exact;
+  const stops = new Set(['como', 'cual', 'cuales', 'donde', 'cuando', 'para', 'puedo', 'sobre', 'quiero', 'saber', 'tengo', 'necesito', 'hola']);
+  const tokens = [...new Set(query.split(/\W+/).filter(t => t.length >= 4 && !stops.has(t)))];
+  const votes = new Map();
+  for (const token of tokens) {
+    // Restrict local answers to FAQ question/category matches, not arbitrary prose.
+    const candidates = searchFaqs(token, active.map(f => ({ ...f, respuestas: [] })), 0.25);
+    for (const [rank, faq] of candidates.entries()) votes.set(faq.id, (votes.get(faq.id) || 0) + 1 / (rank + 1));
+  }
+  return active.filter(f => votes.has(f.id)).sort((a, b) => votes.get(b.id) - votes.get(a.id))[0] || null;
+}
+function localReply(text) {
+  const query = normalize(text);
+  if (/^(hola|buenas|buenos dias|saludos|que tal|como estas)\b/.test(query)) return '¡Hola! ¿En qué puedo ayudarle? Puede consultar horarios, pagos, acceso, reembolsos y PQR.';
+  const matched = findLocalFaq(text);
+  if (matched) return matched.respuestas[0]?.textoRespuesta || 'La pregunta aún no tiene respuesta oficial.';
+  return 'La demo local solo consulta las FAQs y responde saludos. Para preguntas generales, conecte la API o elija un proveedor externo en Conexión, revisando primero el aviso de privacidad.';
+}
+async function generateDemoReply(text, historyMessages) {
+  if (aiConfig.provider === 'local') return localReply(text);
+  if (!aiConfig.consent) throw new ServiceError('Autorice el envío externo en Conexión antes de continuar.');
+  const system = 'Responde en español con tono claro, útil y amable. Puedes saludar y responder preguntas generales. Para información de la entidad usa exclusivamente estas FAQs de demostración; si falta información, dilo: ' + faqsState.filter(f => f.estadoActivo).map(f => `${f.textoPregunta}: ${f.respuestas[0]?.textoRespuesta || ''}`).join('\n');
+  const recent = historyMessages.filter(m => m.role === 'user' || m.role === 'bot').slice(-6).map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }));
+  while (recent[0]?.role === 'assistant') recent.shift();
+  recent.push({ role: 'user', content: text });
+  let data;
+  if (aiConfig.provider === 'gemini') {
+    data = await request('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': aiConfig.apiKey },
+      body: JSON.stringify({ system_instruction: { parts: [{ text: system }] }, contents: recent.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })) })
+    });
+    const reply = data?.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('');
+    if (reply?.trim()) return reply.trim();
   } else {
-    title.textContent = 'Nueva Pregunta y Respuesta Oficial';
-    document.getElementById('edit-faq-categoria').value = '';
-    document.getElementById('edit-faq-estado').value = 'true';
-    document.getElementById('edit-faq-pregunta').value = '';
-    document.getElementById('edit-faq-respuesta').value = '';
+    const openai = aiConfig.provider === 'openai';
+    data = await request(openai ? 'https://api.openai.com/v1/chat/completions' : 'https://text.pollinations.ai/openai', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...(openai ? { Authorization: `Bearer ${aiConfig.apiKey}` } : {}) },
+      body: JSON.stringify({ model: openai ? 'gpt-4o-mini' : 'openai', messages: [{ role: 'system', content: system }, ...recent], temperature: 0.4 })
+    });
+    const reply = data?.choices?.[0]?.message?.content;
+    if (typeof reply === 'string' && reply.trim()) return reply.trim();
   }
-
-  modal.classList.remove('hidden');
-  modal.classList.add('flex');
+  throw new ServiceError('El proveedor no devolvió una respuesta. No se consultó otro servicio. Puede elegir «Solo FAQs locales» en Conexión.');
 }
 
-function closeFaqEditor() {
-  const modal = document.getElementById('faq-editor-modal');
-  modal.classList.add('hidden');
-  modal.classList.remove('flex');
+function renderHelp() {
+  const query = $('help-search-input').value.trim();
+  const results = searchFaqs(query, publicFaqs());
+  $('help-results').textContent = `${results.length} respuestas disponibles${query ? ' para su búsqueda' : ''}.`;
+  const list = $('help-list'); list.replaceChildren();
+  if (!results.length) empty(list, faqLoadError ? 'No pudimos cargar la ayuda. Intente más tarde o vuelva al chat.' : query ? 'No encontramos una respuesta. Pruebe otra palabra o pregunte en el chat.' : 'Todavía no hay respuestas disponibles.');
+  for (const faq of results) {
+    const details = element('details', 'help-item');
+    details.append(element('summary', '', faq.textoPregunta));
+    const answer = renderReply(faq.respuestas[0]?.textoRespuesta || 'Pronto publicaremos una respuesta.');
+    answer.classList.remove('message-body'); answer.classList.add('help-answer');
+    answer.append(button('Preguntar en el chat', 'btn btn-quiet', () => {
+      switchView('chat', false); $('chat-input').value = faq.textoPregunta; $('chat-input').focus();
+    }));
+    details.append(answer); list.append(details);
+  }
 }
-
+function renderFaqsTable() {
+  if (!isAdmin()) {
+    $('faqs-table-body').replaceChildren(); $('faq-category-pills').replaceChildren();
+    $('faq-results').textContent = ''; $('faq-actions-heading').hidden = true;
+    return;
+  }
+  const categories = ['Todas', ...new Set(faqsState.map(f => f.categoria))];
+  if (!categories.includes(selectedFaqCategory)) selectedFaqCategory = 'Todas';
+  const pills = $('faq-category-pills'); pills.replaceChildren();
+  for (const category of categories) {
+    const node = button(category, `btn ${selectedFaqCategory === category ? 'btn-primary' : 'btn-secondary'}`, () => {
+      selectedFaqCategory = category; renderFaqsTable();
+      [...$('faq-category-pills').children].find(item => item.textContent === category)?.focus();
+    });
+    node.setAttribute('aria-pressed', String(selectedFaqCategory === category)); pills.append(node);
+  }
+  const query = $('faq-search-input').value.trim();
+  const scoped = faqsState.filter(f => selectedFaqCategory === 'Todas' || f.categoria === selectedFaqCategory);
+  const filtered = searchFaqs(query, scoped);
+  $('faq-results').textContent = faqLoadError ? 'El directorio no se pudo actualizar. Los datos previos, si existen, se conservan.' : `${filtered.length} preguntas encontradas${query ? ' · coincidencias aproximadas' : ''}.`;
+  $('faq-actions-heading').hidden = !isAdmin();
+  const body = $('faqs-table-body'); body.replaceChildren();
+  if (!filtered.length) {
+    const row = element('tr'); const cell = element('td'); cell.colSpan = isAdmin() ? 6 : 5;
+    empty(cell, faqLoadError ? 'No se pudo cargar el directorio. Compruebe la API.' : mode === 'unselected' ? 'Seleccione una conexión para cargar las preguntas.' : query ? 'No hay coincidencias. Pruebe con otra palabra.' : 'No hay preguntas en esta categoría.');
+    row.append(cell); body.append(row); return;
+  }
+  for (const faq of filtered) {
+    const row = element('tr');
+    for (const value of [`#${faq.id}`, faq.categoria, faq.textoPregunta, faq.respuestas[0]?.textoRespuesta || 'Sin respuesta oficial']) row.append(element('td', '', value));
+    const state = element('td'); state.append(element('span', `tag${faq.estadoActivo ? ' tag-success' : ''}`, faq.estadoActivo ? 'Activa' : 'Inactiva')); row.append(state);
+    if (isAdmin()) {
+      const actions = element('td');
+      const edit = button('Editar', 'btn btn-secondary', () => openFaqEditor(faq.id));
+      const remove = button('Eliminar', 'btn btn-secondary btn-danger', () => deleteFaqItem(faq.id));
+      for (const node of [edit, remove]) { node.dataset.mutation = ''; node.disabled = chatBusy || operationBusy || checking; }
+      actions.append(edit, remove); row.append(actions);
+    }
+    body.append(row);
+  }
+}
+function openFaqEditor(id = null) {
+  if (!isAdmin() || operationBusy || chatBusy || checking) return;
+  const faq = faqsState.find(f => f.id === id);
+  $('faq-form').reset(); errorAt('faq-error', ''); $('faq-sync-warning').hidden = true;
+  $('faq-form').querySelector('[type="submit"]').disabled = false;
+  clearFieldErrors('faq-form');
+  $('faq-modal-title').textContent = id ? `Editar pregunta #${id}` : 'Registrar pregunta frecuente';
+  $('edit-faq-id').value = id || '';
+  $('edit-faq-categoria').value = faq?.categoria || '';
+  $('edit-faq-estado').value = String(faq?.estadoActivo ?? true);
+  $('edit-faq-pregunta').value = faq?.textoPregunta || '';
+  $('edit-faq-respuesta').value = faq?.respuestas[0]?.textoRespuesta || '';
+  openDialog('faq-modal');
+}
+function clearFieldErrors(formId) { $(formId).querySelectorAll('[aria-invalid]').forEach(node => node.removeAttribute('aria-invalid')); }
+function formFailure(formId, errorId, error) {
+  errorAt(errorId, error.message);
+  const mapping = formId === 'auth-form' ? { Email: 'auth-email', Password: 'auth-password' } : { Categoria: 'edit-faq-categoria', TextoPregunta: 'edit-faq-pregunta', TextoRespuesta: 'edit-faq-respuesta' };
+  for (const [key, id] of Object.entries(mapping)) if (Object.keys(error.fields || {}).some(k => k.toLowerCase() === key.toLowerCase())) $(id).setAttribute('aria-invalid', 'true');
+}
+async function busyForm(formId, action) {
+  if (operationBusy || chatBusy || checking) return;
+  operationBusy = true;
+  const form = $(formId); const submit = form.querySelector('[type="submit"]');
+  const original = submit.textContent;
+  const controls = [...form.querySelectorAll('input, textarea, select')].map(node => [node, node.disabled]);
+  for (const [node] of controls) node.disabled = true;
+  form.setAttribute('aria-busy', 'true'); submit.textContent = 'Procesando…'; submit.disabled = true; syncControls();
+  try { await action(); }
+  finally {
+    operationBusy = false; form.setAttribute('aria-busy', 'false'); submit.textContent = original;
+    for (const [node, wasDisabled] of controls) node.disabled = wasDisabled;
+    submit.disabled = formId === 'faq-form' && !$('faq-sync-warning').hidden;
+    syncControls();
+  }
+}
 async function saveFaqForm(event) {
   event.preventDefault();
-  const id = document.getElementById('edit-faq-id').value;
-  const payload = {
-    textoPregunta: document.getElementById('edit-faq-pregunta').value.trim(),
-    categoria: document.getElementById('edit-faq-categoria').value.trim(),
-    estadoActivo: document.getElementById('edit-faq-estado').value === 'true',
-    textoRespuesta: document.getElementById('edit-faq-respuesta').value.trim()
-  };
-
-  if (isBackendOnline) {
-    const url = id ? `${API_BASE}/faqs/${id}` : `${API_BASE}/faqs`;
-    const method = id ? 'PUT' : 'POST';
-    const res = await fetch(url, {
-      method,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${currentUser.token}`
-      },
-      body: JSON.stringify(payload)
-    });
-    if (res.ok) {
-      const updated = await fetch(`${API_BASE}/faqs`);
-      faqsState = await updated.json();
-    }
-  } else {
-    if (id) {
-      const idx = faqsState.findIndex(f => f.id === Number(id));
-      if (idx !== -1) {
-        faqsState[idx].textoPregunta = payload.textoPregunta;
-        faqsState[idx].categoria = payload.categoria;
-        faqsState[idx].estadoActivo = payload.estadoActivo;
-        faqsState[idx].respuestas[0].textoRespuesta = payload.textoRespuesta;
-        faqsState[idx].respuestas[0].ultimaActualizacion = new Date().toISOString();
+  if (!isAdmin() || !$('faq-sync-warning').hidden) return;
+  await busyForm('faq-form', async () => {
+    errorAt('faq-error', ''); clearFieldErrors('faq-form');
+    const id = Number($('edit-faq-id').value) || null;
+    const payload = { categoria: $('edit-faq-categoria').value.trim(), textoPregunta: $('edit-faq-pregunta').value.trim(), textoRespuesta: $('edit-faq-respuesta').value.trim(), estadoActivo: $('edit-faq-estado').value === 'true' };
+    if (!payload.categoria || !payload.textoPregunta || !payload.textoRespuesta) { errorAt('faq-error', 'Complete los campos con contenido, no solo espacios.'); return; }
+    try {
+      if (mode === 'api') {
+        await request(`${API_BASE}/faqs${id ? `/${id}` : ''}`, apiOptions(id ? 'PUT' : 'POST', payload));
+        try {
+          const updated = await request(`${API_BASE}/faqs`, apiOptions('GET'));
+          if (!validFaqs(updated)) throw new ServiceError('Formato de directorio inválido.');
+          faqsState = updated; faqLoadError = false;
+        } catch (_) { $('faq-sync-warning').hidden = false; faqLoadError = true; renderFaqsTable(); return; }
+      } else {
+        const nextId = id || Math.max(0, ...faqsState.map(f => f.id)) + 1;
+        const updated = { id: nextId, ...payload, respuestas: [{ id: nextId, preguntaId: nextId, textoRespuesta: payload.textoRespuesta, ultimaActualizacion: new Date().toISOString() }] };
+        faqsState = id ? faqsState.map(f => f.id === id ? updated : f) : [...faqsState, updated];
+        store('nexus_v3_demo_faqs', faqsState);
       }
-    } else {
-      const nextId = faqsState.length ? Math.max(...faqsState.map(f => f.id)) + 1 : 1;
-      faqsState.push({
-        id: nextId,
-        textoPregunta: payload.textoPregunta,
-        categoria: payload.categoria,
-        estadoActivo: payload.estadoActivo,
-        respuestas: [{
-          id: nextId,
-          preguntaId: nextId,
-          textoRespuesta: payload.textoRespuesta,
-          ultimaActualizacion: new Date().toISOString()
-        }]
-      });
-    }
-    localStorage.setItem('chatbot_v2_faqs', JSON.stringify(faqsState));
-  }
-
-  closeFaqEditor();
-  renderFaqsView();
-  renderSuggestedPrompts();
-  showToast(id ? 'FAQ actualizada en la Base de Conocimiento' : 'Nueva FAQ incorporada al contexto de IA', 'emerald');
+      closeDialog('faq-modal', true); renderHelp(); renderFaqsTable(); renderQuickTopics(); renderHistoryTable();
+      showToast(mode === 'api' ? 'La API confirmó el guardado.' : 'Directorio demo actualizado en memoria; se intentó guardar en este navegador.');
+    } catch (error) { formFailure('faq-form', 'faq-error', error); }
+  });
+}
+async function deleteFaqItem(id) {
+  if (!isAdmin() || operationBusy || chatBusy || checking) return;
+  if (!await confirmAction('Eliminar pregunta frecuente', mode === 'api' ? `Se eliminará la pregunta #${id} y sus respuestas del servidor.` : `Se eliminará la pregunta #${id} solo del directorio demo.`, 'Eliminar pregunta')) return;
+  operationBusy = true; syncControls();
+  try {
+    if (!isAdmin()) return;
+    if (mode === 'api') await request(`${API_BASE}/faqs/${id}`, apiOptions('DELETE'));
+    faqsState = faqsState.filter(f => f.id !== id);
+    if (mode === 'demo') store('nexus_v3_demo_faqs', faqsState);
+    renderHelp(); renderFaqsTable(); renderQuickTopics(); renderHistoryTable(); showToast('Pregunta eliminada del directorio seleccionado.');
+  } catch (error) { report(error.message); }
+  finally { operationBusy = false; syncControls(); }
 }
 
-async function handleDeleteFaq(id) {
-  if (!currentUser || currentUser.rol !== 'Admin') {
-    showToast('Se requiere Rol Administrador para eliminar FAQs', 'amber');
-    openAuthModal();
-    return;
+function renderHistoryTable() {
+  if (!isAdmin()) {
+    $('sql-table-body').replaceChildren(); $('history-scope').textContent = '';
+    for (const id of ['kpi-total-chats', 'kpi-unique-sessions', 'kpi-active-faqs']) $(id).textContent = '—';
+    syncControls(); return;
   }
-  if (!confirm(`¿Confirmas eliminar la Pregunta #${id} y sus Respuestas asociadas?`)) return;
-
-  if (isBackendOnline) {
-    await fetch(`${API_BASE}/faqs/${id}`, {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${currentUser.token}` }
-    });
+  $('history-scope').textContent = mode === 'api' ? 'Copia local de respuestas confirmadas por la API para la identidad actual. No es el historial global de SQL Server.' : 'Datos locales de la demo, separados de la API. Las cifras solo describen esta bitácora del navegador.';
+  $('kpi-total-chats').textContent = conversationsDb.length;
+  $('kpi-unique-sessions').textContent = new Set(conversationsDb.map(c => c.sessionId)).size;
+  $('kpi-active-faqs').textContent = faqsState.filter(f => f.estadoActivo).length;
+  const body = $('sql-table-body'); body.replaceChildren();
+  if (!conversationsDb.length) { const row = element('tr'); const cell = element('td'); cell.colSpan = 6; empty(cell, 'Todavía no hay consultas confirmadas en esta bitácora local.'); row.append(cell); body.append(row); }
+  for (const record of conversationsDb) {
+    const row = element('tr');
+    for (const value of [record.conversacionId, record.sessionId.slice(0, 8).toUpperCase(), record.usuarioId ? `ID #${record.usuarioId}` : 'Visitante', record.preguntaUsuario, record.respuestaBot, new Date(record.timestamp).toLocaleString('es-CO')]) row.append(element('td', '', value));
+    body.append(row);
   }
-
-  faqsState = faqsState.filter(f => f.id !== id);
-  localStorage.setItem('chatbot_v2_faqs', JSON.stringify(faqsState));
-  renderFaqsView();
-  renderSuggestedPrompts();
-  showToast(`Pregunta #${id} eliminada correctamente`, 'rose');
+  syncControls();
+}
+function csvCell(value) {
+  let text = String(value ?? '');
+  // Prevent formula injection, including whitespace/control-prefixed formulas.
+  if (/^[\s\u0000-\u001f]*[=+\-@]/.test(text) || /^[\t\r\n]/.test(text)) text = "'" + text;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+function exportHistoryCsv() {
+  if (!isAdmin() || !conversationsDb.length) return;
+  const rows = [['ID', 'SessionId', 'UsuarioId', 'Pregunta', 'Respuesta', 'Fecha'], ...conversationsDb.map(c => [c.conversacionId, c.sessionId, c.usuarioId ?? 'Visitante', c.preguntaUsuario, c.respuestaBot, c.timestamp])];
+  const blob = new Blob(['\uFEFF', rows.map(row => row.map(csvCell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob); const link = element('a');
+  link.href = url; link.download = `Historial_${mode}_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+async function clearHistoryLog() {
+  if (!isAdmin() || operationBusy || chatBusy || checking || !conversationsDb.length) return;
+  if (!await confirmAction('Limpiar historial local', 'Se vaciará únicamente esta bitácora en este navegador. No se borran las conversaciones del panel ni los registros de SQL Server.', 'Limpiar historial local')) return;
+  if (unreadableKeys.has(cacheKey('history'))) { report('No se borró el almacenamiento que no se pudo leer. Revíselo antes de continuar.'); return; }
+  if (!store(cacheKey('history'), [])) return;
+  conversationsDb = []; renderHistoryTable(); showToast('Bitácora local vaciada. SQL Server no fue modificado.');
 }
 
-// ============================================================================
-// BITÁCORA SQL (TABLA CONVERSACIONES)
-// ============================================================================
-function renderConversationsLog() {
-  const tbody = document.getElementById('sql-conversations-tbody');
-  const counter = document.getElementById('sql-total-rows');
-  if (counter) counter.textContent = `${conversationsDb.length} registros`;
-  if (!tbody) return;
-
-  if (conversationsDb.length === 0) {
-    tbody.innerHTML = `
-      <tr>
-        <td colspan="6" class="py-12 text-center text-slate-500 text-xs">
-          No hay registros en la tabla <code class="text-indigo-400">Conversaciones</code> todavía. Envía una consulta en el chat para generar filas.
-        </td>
-      </tr>
-    `;
-    return;
-  }
-
-  tbody.innerHTML = conversationsDb.map(row => `
-    <tr class="hover:bg-slate-800/40 transition border-b border-slate-800/70">
-      <td class="py-3.5 px-4 font-mono text-xs text-indigo-400">#${row.conversacionId}</td>
-      <td class="py-3.5 px-4 font-mono text-[11px] text-slate-400">${row.sessionId}</td>
-      <td class="py-3.5 px-4 text-xs">
-        ${row.usuarioId
-          ? `<span class="px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-semibold">UsuarioId: ${row.usuarioId}</span>`
-          : `<span class="px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 font-mono text-[11px]">NULL (Anónimo)</span>`}
-      </td>
-      <td class="py-3.5 px-4 text-xs text-white font-medium max-w-xs">${escapeHtml(row.preguntaUsuario)}</td>
-      <td class="py-3.5 px-4 text-xs text-slate-300 max-w-md truncate" title="${escapeHtml(row.respuestaBot)}">${escapeHtml(row.respuestaBot)}</td>
-      <td class="py-3.5 px-4 font-mono text-[11px] text-slate-400 whitespace-nowrap">${new Date(row.timestamp).toLocaleString('es-CO')}</td>
-    </tr>
-  `).join('');
-}
-
-function clearConversationsLog() {
-  conversationsDb = [];
-  localStorage.removeItem('chatbot_v2_conversations');
-  renderConversationsLog();
-  showToast('Bitácora local reiniciada', 'indigo');
-}
-
-// ============================================================================
-// MÓDULO 1: AUTENTICACIÓN JWT (/api/auth/login & /api/auth/register)
-// ============================================================================
 function openAuthModal() {
-  document.getElementById('auth-modal').classList.remove('hidden');
-  document.getElementById('auth-modal').classList.add('flex');
+  if (mode === 'unselected') { report('Conecte la API o elija la demo antes de iniciar sesión.'); return; }
+  $('auth-form').reset(); clearFieldErrors('auth-form'); errorAt('auth-error', '');
+  $('demo-accounts').hidden = mode !== 'demo';
+  $('demo-accounts').open = false;
+  $('auth-mode-description').textContent = mode === 'demo' ? 'Acceso simulado para probar roles en la demo. No se guarda su contraseña ni se genera un token real.' : 'Autenticación real contra la API. El token se conserva solo en memoria hasta cerrar o recargar esta página.';
+  openDialog('auth-modal');
 }
-
-function closeAuthModal() {
-  document.getElementById('auth-modal').classList.add('hidden');
-  document.getElementById('auth-modal').classList.remove('flex');
-}
-
-function fillDemoCredentials(role) {
-  if (role === 'Admin') {
-    document.getElementById('auth-email').value = 'admin@chatbot.com';
-    document.getElementById('auth-password').value = 'Admin123!';
-  } else {
-    document.getElementById('auth-email').value = 'usuario@chatbot.com';
-    document.getElementById('auth-password').value = 'User123!';
-  }
-}
-
 async function submitAuthForm(event) {
   event.preventDefault();
-  const email = document.getElementById('auth-email').value.trim();
-  const password = document.getElementById('auth-password').value;
-
-  if (isBackendOnline) {
+  await busyForm('auth-form', async () => {
+    errorAt('auth-error', ''); clearFieldErrors('auth-form');
+    const email = $('auth-email').value.trim(); const password = $('auth-password').value;
     try {
-      const res = await fetch(`${API_BASE}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        showToast(data.mensaje || 'Credenciales incorrectas', 'rose');
-        return;
-      }
-      currentUser = data;
-    } catch (_) {
-      showToast('Error de red al autenticar con el servidor', 'rose');
-      return;
+      if (mode === 'api') {
+        const user = await request(`${API_BASE}/auth/login`, apiOptions('POST', { email, password }));
+        if (!user?.token || !Number.isInteger(user.usuarioId) || !['Admin', 'User'].includes(user.rol)) throw new ServiceError('Respuesta de autenticación no válida.');
+        currentUser = user; loadScope();
+        try {
+          const updated = await request(`${API_BASE}/faqs`, apiOptions('GET'));
+          if (!validFaqs(updated)) throw new ServiceError('No se pudo actualizar el directorio.');
+          faqsState = updated; faqLoadError = false;
+        } catch (_) { faqLoadError = true; report('La sesión se abrió, pero no pudimos actualizar la ayuda. Intente cargarla nuevamente.'); }
+        if (!currentUser) throw new ServiceError('Su sesión no pudo validarse. Inicie sesión nuevamente.');
+      } else if (mode === 'demo') {
+        const admin = email.toLowerCase() === 'admin@chatbot.com' && password === 'Admin123!';
+        const user = email.toLowerCase() === 'usuario@chatbot.com' && password === 'User123!';
+        if (!admin && !user) throw new ServiceError('Credenciales demo incorrectas. Use las cuentas de prueba indicadas.');
+        currentUser = { usuarioId: admin ? 1 : 2, nombre: admin ? 'Administrador demo' : 'Usuario demo', rol: admin ? 'Admin' : 'User' };
+        faqsState = readStored('nexus_v3_demo_faqs', validFaqs, structuredClone(seedFaqs));
+        loadScope();
+      } else throw new ServiceError('Seleccione una conexión.');
+      $('auth-password').value = '';
+      if ($('app-error').dataset.source === 'auth') $('app-error').hidden = true;
+      closeDialog('auth-modal', true); renderAll(); showToast('Sesión iniciada.');
+    } catch (error) { formFailure('auth-form', 'auth-error', error); }
+  });
+}
+function logoutUser() { currentUser = null; if (mode !== 'unselected') loadScope(); renderAll(); showToast('Sesión cerrada.'); }
+function openSettingsModal() {
+  if (!isAdmin()) return;
+  $('ai-provider-select').value = aiConfig.provider; $('ai-apikey-input').value = aiConfig.apiKey; $('external-consent').checked = aiConfig.consent;
+  $('ai-provider-select').disabled = mode !== 'demo';
+  errorAt('settings-error', ''); toggleApiKeyBox(); openDialog('settings-modal');
+}
+function toggleApiKeyBox() {
+  const provider = $('ai-provider-select').value;
+  $('ai-apikey-box').hidden = !['gemini', 'openai'].includes(provider);
+  $('ai-apikey-input').required = ['gemini', 'openai'].includes(provider);
+  $('external-consent-box').hidden = provider === 'local';
+}
+function saveSettingsForm(event) {
+  event.preventDefault();
+  if (!isAdmin()) return;
+  if (mode !== 'demo') { closeDialog('settings-modal'); return; }
+  const provider = $('ai-provider-select').value;
+  if (provider !== 'local' && !$('external-consent').checked) { errorAt('settings-error', 'Confirme que autoriza el envío al proveedor seleccionado.'); return; }
+  if (['gemini', 'openai'].includes(provider) && !$('ai-apikey-input').value.trim()) { errorAt('settings-error', 'Ingrese una clave temporal o seleccione Solo FAQs locales.'); return; }
+  aiConfig = { provider, apiKey: ['gemini', 'openai'].includes(provider) ? $('ai-apikey-input').value.trim() : '', consent: provider !== 'local' && $('external-consent').checked };
+  closeDialog('settings-modal'); showToast('Preferencias temporales aplicadas. No se guardaron claves en el navegador.');
+}
+
+function openDialog(id) {
+  const dialog = $(id);
+  if (document.querySelector('dialog[open]')) return;
+  dialogTriggers.set(dialog, document.activeElement); dialog.showModal();
+  const first = dialog.querySelector('[autofocus], input:not([type="hidden"]), textarea, select, button');
+  first?.focus();
+}
+function closeDialog(id, force = false) {
+  const dialog = $(id);
+  if (!force && dialog.querySelector('[aria-busy="true"]')) return;
+  dialog.close();
+}
+function confirmAction(title, description, accept) {
+  if (document.querySelector('dialog[open]')) return Promise.resolve(false);
+  $('confirm-title').textContent = title; $('confirm-description').textContent = description; $('confirm-accept').textContent = accept;
+  return new Promise(resolve => { confirmResolver = resolve; openDialog('confirm-modal'); });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  initializeTheme();
+  setSidebarOpen(!window.matchMedia('(max-width: 720px)').matches, false);
+  // Remove only legacy credentials/configuration, never old conversation or FAQ data.
+  try {
+    if (localStorage.getItem('chatbot_v2_aiconfig') || localStorage.getItem('chatbot_v2_user')) {
+      localStorage.removeItem('chatbot_v2_aiconfig'); localStorage.removeItem('chatbot_v2_user');
+      report('Se retiraron credenciales y claves persistidas por la versión anterior. Sus FAQs y conversaciones antiguas no se borraron ni se mezclaron con la nueva demo.');
     }
-  } else {
-    if (email.toLowerCase() === 'admin@chatbot.com' && password === 'Admin123!') {
-      currentUser = {
-        usuarioId: 1,
-        nombre: 'Administrador Principal',
-        email: 'admin@chatbot.com',
-        rol: 'Admin',
-        token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.admin-jwt-signature'
-      };
-    } else if (email.toLowerCase() === 'usuario@chatbot.com' && password === 'User123!') {
-      currentUser = {
-        usuarioId: 2,
-        nombre: 'Usuario Demo',
-        email: 'usuario@chatbot.com',
-        rol: 'User',
-        token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.user-jwt-signature'
-      };
-    } else {
-      showToast('Credenciales inválidas. Usa los botones de acceso rápido.', 'rose');
-      return;
+  } catch (_) { report('No se pudo acceder al almacenamiento. La página funcionará en memoria sin persistir credenciales.'); }
+  document.querySelectorAll('[data-view]').forEach(node => node.addEventListener('click', () => switchView(node.dataset.view)));
+  document.querySelector('.brand').addEventListener('click', () => switchView('chat'));
+  window.addEventListener('hashchange', () => switchView(location.hash.slice(1)));
+  $('settings-button').addEventListener('click', openSettingsModal);
+  $('sidebar-toggle').addEventListener('click', () => setSidebarOpen(true));
+  $('sidebar-close').addEventListener('click', () => setSidebarOpen(false));
+  $('sidebar-backdrop').addEventListener('click', () => setSidebarOpen(false));
+  $('conversation-search').addEventListener('input', renderSessionsList);
+  $('account-shortcut').addEventListener('click', () => { setSidebarOpen(true, false); $('profile-action-btn').focus(); });
+  $('knowledge-button').addEventListener('click', () => { renderQuickTopics(); openDialog('knowledge-modal'); });
+  $('chat-settings').addEventListener('click', () => {
+    if (isAdmin()) openSettingsModal();
+    else { $('theme-select').value = document.documentElement.dataset.theme; openDialog('preferences-modal'); }
+  });
+  $('theme-select').addEventListener('change', () => { applyTheme($('theme-select').value); store('nexus_ui_theme', $('theme-select').value); });
+  window.matchMedia('(max-width: 720px)').addEventListener('change', event => setSidebarOpen(!event.matches, false));
+  document.addEventListener('keydown', event => {
+    const mobile = window.matchMedia('(max-width: 720px)').matches;
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k' && !document.querySelector('dialog[open]')) {
+      event.preventDefault(); setSidebarOpen(true, false); $('conversation-search').focus();
     }
+    if (document.querySelector('dialog[open]')) return;
+    if (event.key === 'Escape' && mobile && sidebarOpen) setSidebarOpen(false);
+    if (event.key === 'Tab' && mobile && sidebarOpen) {
+      const nodes = [...$('chat-sidebar').querySelectorAll('a[href], button:not(:disabled), input:not(:disabled)')].filter(node => node.getClientRects().length);
+      const first = nodes[0]; const last = nodes.at(-1);
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    }
+  });
+  $('manage-connection').addEventListener('click', () => {
+    if (!isAdmin()) return;
+    closeDialog('settings-modal');
+    if (API_BASE) checkConnection();
+    else showToast('Abra la aplicación desde el servidor para comprobar la conexión.');
+  });
+  $('retry-connection').addEventListener('click', checkConnection);
+  $('enter-demo').addEventListener('click', enterDemo);
+  $('dismiss-error').addEventListener('click', () => { $('app-error').hidden = true; });
+  $('profile-action-btn').addEventListener('click', () => currentUser ? logoutUser() : openAuthModal());
+  $('new-session').addEventListener('click', () => { if (mode !== 'unselected') createNewSession(); });
+  $('chat-form').addEventListener('submit', handleChatSubmit);
+  $('chat-input').addEventListener('keydown', event => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) { event.preventDefault(); if (!chatBusy) $('chat-form').requestSubmit(); }
+  });
+  $('add-faq').addEventListener('click', () => openFaqEditor());
+  $('faq-search-input').addEventListener('input', renderFaqsTable);
+  $('help-search-input').addEventListener('input', renderHelp);
+  $('faq-form').addEventListener('submit', saveFaqForm);
+  $('export-history').addEventListener('click', exportHistoryCsv);
+  $('clear-history').addEventListener('click', clearHistoryLog);
+  $('auth-form').addEventListener('submit', submitAuthForm);
+  $('settings-form').addEventListener('submit', saveSettingsForm);
+  $('ai-provider-select').addEventListener('change', () => { $('external-consent').checked = false; $('ai-apikey-input').value = ''; toggleApiKeyBox(); });
+  $('see-all-help').addEventListener('click', () => { closeDialog('knowledge-modal'); switchView('help'); });
+  document.querySelectorAll('[data-demo-role]').forEach(node => node.addEventListener('click', () => {
+    if (mode !== 'demo') return;
+    $('auth-email').value = node.dataset.demoRole === 'Admin' ? 'admin@chatbot.com' : 'usuario@chatbot.com';
+    $('auth-password').value = node.dataset.demoRole === 'Admin' ? 'Admin123!' : 'User123!';
+  }));
+  document.querySelectorAll('[data-close]').forEach(node => node.addEventListener('click', () => closeDialog(node.dataset.close)));
+  for (const dialog of document.querySelectorAll('dialog')) {
+    dialog.addEventListener('keydown', event => {
+      if (event.key !== 'Tab') return;
+      const focusable = [...dialog.querySelectorAll('button:not(:disabled), input:not(:disabled):not([type="hidden"]), textarea:not(:disabled), select:not(:disabled), a[href], [tabindex="0"]')].filter(node => node.getClientRects().length > 0);
+      const first = focusable[0]; const last = focusable[focusable.length - 1];
+      if (!first) { event.preventDefault(); return; }
+      if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) { event.preventDefault(); first.focus(); }
+    });
+    dialog.addEventListener('cancel', event => { if (dialog.querySelector('[aria-busy="true"]')) event.preventDefault(); });
+    dialog.addEventListener('close', () => {
+      if (dialog.id === 'auth-modal') $('auth-password').value = '';
+      if (dialog.id === 'settings-modal') $('ai-apikey-input').value = '';
+      if (dialog.id === 'confirm-modal' && confirmResolver) { const resolve = confirmResolver; confirmResolver = null; resolve(false); }
+      const trigger = dialogTriggers.get(dialog);
+      if (trigger?.isConnected && !trigger.disabled && trigger.getClientRects().length && !trigger.closest('[inert]')) trigger.focus();
+      else $('account-shortcut').focus();
+    });
   }
-
-  localStorage.setItem('chatbot_v2_user', JSON.stringify(currentUser));
-  updateUserProfileUI();
-  closeAuthModal();
-  showToast(`Sesión iniciada como ${currentUser.nombre} (${currentUser.rol})`, 'emerald');
-}
-
-function logoutUser() {
-  currentUser = null;
-  localStorage.removeItem('chatbot_v2_user');
-  updateUserProfileUI();
-  showToast('Sesión JWT cerrada', 'indigo');
-}
-
-function updateUserProfileUI() {
-  const nameEl = document.getElementById('profile-name');
-  const roleEl = document.getElementById('profile-role');
-  const avatarEl = document.getElementById('profile-avatar');
-  const actionBtn = document.getElementById('profile-action-btn');
-
-  if (currentUser) {
-    nameEl.textContent = currentUser.nombre;
-    roleEl.textContent = `Rol: ${currentUser.rol} • JWT Activo`;
-    roleEl.className = 'text-[11px] text-emerald-400 font-medium';
-    avatarEl.textContent = currentUser.nombre.charAt(0).toUpperCase();
-    avatarEl.className = 'w-9 h-9 rounded-xl bg-indigo-600 text-white font-bold flex items-center justify-center text-sm shadow';
-    actionBtn.innerHTML = '<i class="fa-solid fa-right-from-bracket"></i>';
-    actionBtn.title = 'Cerrar sesión JWT';
-    actionBtn.onclick = logoutUser;
-  } else {
-    nameEl.textContent = 'Usuario Anónimo';
-    roleEl.textContent = 'Sin autenticar • Click para Login';
-    roleEl.className = 'text-[11px] text-slate-400';
-    avatarEl.innerHTML = '<i class="fa-regular fa-user"></i>';
-    avatarEl.className = 'w-9 h-9 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 flex items-center justify-center text-sm';
-    actionBtn.innerHTML = '<i class="fa-solid fa-key text-indigo-400"></i>';
-    actionBtn.title = 'Iniciar sesión JWT';
-    actionBtn.onclick = openAuthModal;
-  }
-}
-
-// ============================================================================
-// NAVEGACIÓN ENTRE VISTAS Y UTILIDADES UI
-// ============================================================================
-function switchWorkspaceView(viewName) {
-  ['chat', 'faqs', 'sql'].forEach(v => {
-    document.getElementById(`workspace-${v}`).classList.toggle('hidden', v !== viewName);
-    const navBtn = document.getElementById(`nav-btn-${v}`);
-    if (v === viewName) {
-      navBtn.className = 'w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-indigo-600 text-white shadow-md glow-indigo transition';
-    } else {
-      navBtn.className = 'w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-medium text-slate-400 hover:bg-slate-800/70 hover:text-slate-200 transition';
-    }
+  $('confirm-form').addEventListener('submit', event => {
+    event.preventDefault(); const resolve = confirmResolver; confirmResolver = null; closeDialog('confirm-modal'); resolve?.(true);
   });
-}
-
-function setupTextareaAutoResize() {
-  const textarea = document.getElementById('chat-input');
-  if (!textarea) return;
-
-  textarea.addEventListener('input', () => {
-    textarea.style.height = 'auto';
-    textarea.style.height = Math.min(textarea.scrollHeight, 130) + 'px';
-  });
-
-  textarea.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleChatSubmit(e);
-    }
-  });
-}
-
-function scrollToBottom(el) {
-  if (!el) return;
-  el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
-}
-
-function formatBotRichText(str) {
-  const safe = escapeHtml(str);
-  return safe
-    .replace(/\*\*(.+?)\*\*/g, '<strong class="text-white font-semibold">$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em class="text-indigo-300">$1</em>');
-}
-
-function escapeHtml(str) {
-  return String(str ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-function showToast(message, color = 'indigo') {
-  const container = document.getElementById('toast-container');
-  const toast = document.createElement('div');
-  const colors = {
-    indigo: 'border-indigo-500/40 bg-slate-900/95 text-indigo-200',
-    emerald: 'border-emerald-500/40 bg-slate-900/95 text-emerald-200',
-    amber: 'border-amber-500/40 bg-slate-900/95 text-amber-200',
-    rose: 'border-rose-500/40 bg-slate-900/95 text-rose-200'
-  };
-  toast.className = `px-4 py-3 rounded-xl border ${colors[color] || colors.indigo} shadow-xl text-xs font-medium flex items-center gap-2.5 msg-enter backdrop-blur-md`;
-  toast.innerHTML = `<i class="fa-solid fa-circle-info"></i> <span>${escapeHtml(message)}</span>`;
-  container.appendChild(toast);
-  setTimeout(() => toast.remove(), 3200);
-}
+  switchView(location.hash.slice(1), false); renderAll();
+  if (API_BASE) checkConnection(); else { connection = 'error'; renderConnection(); }
+});

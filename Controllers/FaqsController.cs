@@ -17,14 +17,15 @@ namespace ChatbotApi.Controllers
         }
 
         /// <summary>
-        /// Obtiene todas las preguntas frecuentes con sus respuestas.
-        /// Puede filtrarse solo por activas (?onlyActive=true).
+        /// Obtiene FAQs activas para el público. Un Admin autenticado puede consultar todas.
+        /// El Admin también puede filtrar solo activas (?onlyActive=true).
         /// </summary>
         [HttpGet]
         [AllowAnonymous]
         public async Task<IActionResult> GetAll([FromQuery] bool onlyActive = false)
         {
-            var faqs = await _faqService.GetAllAsync(onlyActive);
+            // La ayuda pública nunca expone preguntas inactivas, aunque se solicite onlyActive=false.
+            var faqs = await _faqService.GetAllAsync(onlyActive || !User.IsInRole("Admin"));
             return Ok(faqs);
         }
 
@@ -36,7 +37,7 @@ namespace ChatbotApi.Controllers
         public async Task<IActionResult> GetById(int id)
         {
             var faq = await _faqService.GetByIdAsync(id);
-            if (faq == null)
+            if (faq == null || (!faq.EstadoActivo && !User.IsInRole("Admin")))
                 return NotFound(new { mensaje = $"No se encontró la FAQ con ID {id}." });
 
             return Ok(faq);

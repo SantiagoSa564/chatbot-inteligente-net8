@@ -31,9 +31,9 @@ namespace ChatbotApi.Services.Implementations
                 throw new InvalidOperationException("El correo electrónico ya se encuentra registrado.");
             }
 
-            var rolAsignado = (registerDto.Rol == "Admin" || registerDto.Rol == "User")
-                ? registerDto.Rol
-                : "User";
+            // El registro público nunca concede permisos administrativos.
+            // Los administradores se provisionan mediante el seeder o un canal protegido.
+            const string rolAsignado = "User";
 
             var nuevoUsuario = new Usuario
             {

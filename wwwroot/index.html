@@ -1,534 +1,152 @@
 <!DOCTYPE html>
-<html lang="es" class="dark">
+<html lang="es">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>NexusAI &bull; Chatbot Inteligente de Atención al Usuario</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
-  <link rel="stylesheet" href="css/styles.css" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Atención al Usuario · NexusAI</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/chat-v0.css">
+  <script src="vendor/marked/marked.umd.js" defer></script>
+  <script src="vendor/dompurify/purify.min.js" defer></script>
+  <script src="vendor/fuse.js/fuse.min.js" defer></script>
+  <script src="js/app.js" defer></script>
 </head>
-<body class="ambient-bg h-screen w-screen flex overflow-hidden select-none">
-
-  <!-- Contenedor de Notificaciones Toast -->
-  <div id="toast-container" class="fixed top-5 right-5 z-50 space-y-2"></div>
-
-  <!-- ================= SIDEBAR IZQUIERDO (ESTILO CHATGPT / CLAUDE) ================= -->
-  <aside class="w-72 h-full glass-panel border-r border-slate-800/80 flex flex-col justify-between shrink-0 z-20">
-
-    <!-- Parte Superior: Logo + Botón Nuevo Chat + Módulos -->
-    <div class="p-4 space-y-5">
-      <!-- Identidad de Marca -->
-      <div class="flex items-center justify-between px-1">
-        <div class="flex items-center gap-3">
-          <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 via-indigo-600 to-cyan-500 flex items-center justify-center shadow-lg glow-indigo">
-            <i class="fa-solid fa-robot text-white text-base"></i>
-          </div>
-          <div>
-            <div class="flex items-center gap-1.5">
-              <span class="font-display font-extrabold text-base tracking-tight text-white">NexusAI</span>
-              <span class="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">.NET 8</span>
-            </div>
-            <p class="text-[11px] text-slate-400">Atención Inteligente 24/7</p>
-          </div>
-        </div>
+<body>
+  <a class="skip-link" href="#main-content">Saltar al contenido</a>
+  <!-- Layout from v0's shell(): sidebar + stage/topbar + chat-page. No demo services. -->
+  <div id="app-layout" class="layout chat-layout">
+    <button id="sidebar-backdrop" class="backdrop" aria-label="Cerrar menú" type="button" tabindex="-1"></button>
+    <aside id="chat-sidebar" class="sidebar" aria-label="Temas y conversaciones">
+      <div class="side-head"><a class="brand" href="#chat" aria-label="NexusAI, volver al chat"><img class="brand-mark" src="images/nexusai/mark.svg" width="34" height="34" alt=""><span>Nexus<span class="brand-accent">AI</span></span></a><button id="sidebar-close" class="icon" type="button" aria-label="Contraer menú"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18m7-13-4 4 4 4"/></svg></button></div>
+      <button id="new-session" class="primary new" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-7M16 3l5 5-10 10-5 1 1-5Z"/></svg>Nueva conversación</button>
+      <label class="search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="7"/><path d="m16 16 5 5"/></svg><span class="sr-only">Buscar conversaciones</span><input id="conversation-search" type="search" placeholder="Buscar conversación…" autocomplete="off"><kbd class="key" aria-hidden="true">Ctrl K</kbd></label>
+      <nav id="sessions-list" class="history session-list" aria-label="Historial de conversaciones"></nav>
+      <div class="side-foot">
+        <nav aria-label="Secciones del centro de atención">
+          <button id="tab-chat" class="nav active" aria-current="page" aria-controls="view-chat" data-view="chat" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"/></svg>Volver al chat</button>
+          <button id="tab-help" class="nav" aria-controls="view-help" data-view="help" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9 9a3 3 0 0 1 6 0c0 2-3 2-3 4m0 3h.01"/></svg>Preguntas frecuentes</button>
+          <button id="admin-entry" class="nav" data-view="faqs" type="button" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Administración</button>
+          <button id="chat-settings" class="nav" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h18M3 17h18"/><circle cx="8" cy="7" r="3"/><circle cx="16" cy="17" r="3"/></svg>Configuración</button>
+          <button id="enter-demo" class="nav" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6m-5 0v7L4 20h16l-6-10V3M7 15h10"/></svg>Modo demostración</button>
+          <p id="demo-active" class="demo-active" hidden>Modo demostración <span class="tag">Demo</span></p>
+        </nav>
+        <div class="account"><span class="avatar user-avatar" aria-hidden="true">V</span><div class="account-copy"><strong id="profile-name">Visitante</strong><small id="profile-role">Sin iniciar sesión</small></div><button id="profile-action-btn" class="icon" type="button" aria-label="Iniciar sesión"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H4v16h5M9 12h12m-4-4 4 4-4 4"/></svg></button></div>
       </div>
-
-      <!-- Botón Nueva Conversación -->
-      <button
-        onclick="createNewChatSession(true)"
-        class="w-full py-2.5 px-4 rounded-xl bg-white hover:bg-slate-100 text-slate-950 font-semibold text-xs shadow-md transition flex items-center justify-between group cursor-pointer"
-      >
-        <span class="flex items-center gap-2">
-          <i class="fa-solid fa-plus text-indigo-600"></i>
-          <span>Nueva Conversación</span>
-        </span>
-        <kbd class="text-[10px] font-mono bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded">GUID</kbd>
-      </button>
-
-      <!-- Navegación de Arquitectura -->
-      <div class="space-y-1">
-        <p class="px-2 text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">Módulos del Sistema</p>
-
-        <button id="nav-btn-chat" onclick="switchWorkspaceView('chat')" class="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-indigo-600 text-white shadow-md glow-indigo transition">
-          <span class="flex items-center gap-2.5">
-            <i class="fa-solid fa-comments w-4 text-center"></i>
-            <span>Chatbot Asistente IA</span>
-          </span>
-          <span class="text-[10px] opacity-80 font-mono">LLM</span>
-        </button>
-
-        <button id="nav-btn-faqs" onclick="switchWorkspaceView('faqs')" class="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-medium text-slate-400 hover:bg-slate-800/70 hover:text-slate-200 transition">
-          <span class="flex items-center gap-2.5">
-            <i class="fa-solid fa-book-bookmark w-4 text-center"></i>
-            <span>Base de Conocimiento</span>
-          </span>
-          <span id="sidebar-faq-counter" class="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-300 font-semibold">5</span>
-        </button>
-
-        <button id="nav-btn-sql" onclick="switchWorkspaceView('sql')" class="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-medium text-slate-400 hover:bg-slate-800/70 hover:text-slate-200 transition">
-          <span class="flex items-center gap-2.5">
-            <i class="fa-solid fa-database w-4 text-center"></i>
-            <span>Bitácora Conversaciones</span>
-          </span>
-          <span class="text-[10px] font-mono text-slate-500">SQL</span>
-        </button>
-      </div>
-    </div>
-
-    <!-- Parte Central: Historial de Sesiones (SessionId) -->
-    <div class="flex-1 px-4 overflow-y-auto space-y-1.5 min-h-0">
-      <div class="flex items-center justify-between px-2 mb-1">
-        <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Sesiones Recientes</span>
-        <i class="fa-solid fa-clock-rotate-left text-[10px] text-slate-600"></i>
-      </div>
-      <div id="sessions-list" class="space-y-1"></div>
-    </div>
-
-    <!-- Parte Inferior: Estado API + Perfil JWT -->
-    <div class="p-4 border-t border-slate-800/80 space-y-3 bg-slate-950/40">
-      <!-- Estado de Conexión -->
-      <div class="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-slate-900/90 border border-slate-800 text-[11px]">
-        <div class="flex items-center gap-2">
-          <span id="conn-dot" class="w-2 h-2 rounded-full bg-indigo-400"></span>
-          <span id="conn-label" class="text-slate-300 font-medium">Motor IA Activo</span>
-        </div>
-        <span class="font-mono text-[10px] text-slate-500">EF Core</span>
-      </div>
-
-      <!-- Tarjeta de Usuario / Login JWT -->
-      <div class="flex items-center justify-between p-2 rounded-xl bg-slate-900/70 border border-slate-800/90">
-        <div onclick="openAuthModal()" class="flex items-center gap-2.5 cursor-pointer min-w-0">
-          <div id="profile-avatar" class="w-9 h-9 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 flex items-center justify-center text-sm shrink-0">
-            <i class="fa-regular fa-user"></i>
-          </div>
-          <div class="truncate">
-            <p id="profile-name" class="text-xs font-semibold text-white truncate">Usuario Anónimo</p>
-            <p id="profile-role" class="text-[11px] text-slate-400 truncate">Sin autenticar</p>
-          </div>
-        </div>
-        <button id="profile-action-btn" onclick="openAuthModal()" class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition shrink-0">
-          <i class="fa-solid fa-key text-indigo-400"></i>
-        </button>
-      </div>
-    </div>
-  </aside>
-
-  <!-- ================= ÁREA DE TRABAJO PRINCIPAL ================= -->
-  <div class="flex-1 h-full flex flex-col min-w-0 relative">
-
-    <!-- ================= VISTA 1: CHATBOT INTELIGENTE ================= -->
-    <main id="workspace-chat" class="flex-1 h-full flex flex-col justify-between overflow-hidden">
-
-      <!-- Barra Superior del Chat -->
-      <header class="h-16 px-6 border-b border-slate-800/80 glass-panel flex items-center justify-between shrink-0">
-        <div class="flex items-center gap-3">
-          <div class="flex items-center gap-2">
-            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
-            <h2 class="font-display font-bold text-sm text-white">Asistente Institucional con Contexto RAG (FAQs)</h2>
-          </div>
-          <span class="hidden sm:inline-block text-xs text-slate-500">&bull;</span>
-          <span class="hidden sm:inline-block text-xs font-mono text-slate-400 bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-800">
-            SessionId: <strong id="active-session-guid" class="text-indigo-300"></strong>
-          </span>
-        </div>
-
-        <div class="flex items-center gap-2">
-          <button onclick="openAiSettingsModal()" class="px-3 py-1.5 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 text-xs font-semibold border border-indigo-500/30 transition flex items-center gap-1.5 cursor-pointer">
-            <i class="fa-solid fa-microchip"></i>
-            <span>Motor IA (LLM)</span>
-          </button>
-          <button onclick="switchWorkspaceView('faqs')" class="px-3 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-800 text-slate-300 text-xs font-medium border border-slate-700/70 transition flex items-center gap-1.5 cursor-pointer">
-            <i class="fa-solid fa-sliders text-indigo-400"></i>
-            <span class="hidden md:inline">Entrenar FAQs</span>
-          </button>
-        </div>
+    </aside>
+    <div class="stage" id="app-stage">
+      <header class="topbar">
+        <button id="sidebar-toggle" class="icon mobile-open" type="button" aria-label="Abrir menú" aria-controls="chat-sidebar" aria-expanded="true"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18m4-13 4 4-4 4"/></svg></button>
+        <img class="top-assist" src="images/nexusai/mark.svg" width="30" height="30" alt="">
+        <h1 id="chat-title" tabindex="-1">Asistente NexusAI</h1>
+        <span id="connection-status" class="badge" role="status">Comprobando…</span>
+        <div class="top-actions"><button id="theme-toggle" class="icon" type="button" aria-label="Modo oscuro" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 13A9 9 0 0 1 11 3.2 9 9 0 1 0 20.8 13Z"/></svg></button><button id="account-shortcut" class="account-shortcut" aria-label="Abrir menú de cuenta" type="button"><span class="avatar user-avatar" aria-hidden="true">V</span></button></div>
       </header>
+  <main id="main-content" tabindex="-1">
+    <div id="toast-container" class="toast-container" role="status" aria-live="polite" aria-atomic="true"></div>
+    <div id="app-error" class="notice notice-error" role="alert" hidden><p id="app-error-text"></p><button id="dismiss-error" class="btn btn-secondary" type="button">Cerrar aviso</button></div>
+    <div id="connection-banner" class="setup-notice"><p id="connection-public-message" role="status">Preparando el chat…</p><div class="action-row"><button id="retry-connection" class="btn btn-secondary" type="button">Reintentar</button></div></div>
 
-      <!-- Contenedor Central de Mensajes -->
-      <div id="chat-scroll-container" class="flex-1 overflow-y-auto px-4 sm:px-8 py-6">
-        <div class="max-w-4xl mx-auto">
-
-          <!-- Estado Inicial (Hero de Bienvenida cuando la sesión está vacía) -->
-          <div id="chat-empty-state" class="py-6 space-y-8">
-            <div class="text-center space-y-3 max-w-xl mx-auto">
-              <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 via-indigo-600 to-cyan-400 mx-auto flex items-center justify-center shadow-xl glow-indigo mb-4">
-                <i class="fa-solid fa-sparkles text-2xl text-white"></i>
-              </div>
-              <h1 class="font-display font-extrabold text-2xl sm:text-3xl text-white tracking-tight">
-                ¿En qué puedo colaborarle hoy?
-              </h1>
-              <p class="text-xs sm:text-sm text-slate-400 leading-relaxed">
-                Soy el asistente inteligente conectado en tiempo real a la Base de Conocimiento Oficial (<code class="text-indigo-300">Preguntas</code> y <code class="text-indigo-300">Respuestas</code>). Selecciona una consulta frecuente o escribe tu pregunta abajo:
-              </p>
+    <section id="view-chat" class="chat-page" aria-labelledby="chat-title">
+        <div class="chat-panel">
+          <div id="chat-scroll-box" class="chat-scroll" tabindex="0" role="region" aria-label="Mensajes de la conversación">
+            <div class="chat-wrap">
+            <div id="chat-welcome" class="chat-welcome">
+              <section class="hero" aria-labelledby="welcome-title"><img class="sculpture welcome-art" src="images/nexusai/neural.webp" width="760" height="510" alt=""><div class="hero-copy"><div class="eyebrow"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5ZM20 2v4m-2-2h4"/></svg>Tu asistente inteligente</div><h2 id="welcome-title">¡Hola, Visitante!</h2><p>¿En qué puedo ayudarte hoy?</p></div></section>
+              <div class="suggest-head"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5Z"/></svg><h2>Sugerencias para empezar</h2></div>
+              <div id="welcome-topics" class="welcome-topics"></div>
             </div>
-
-            <!-- Tarjetas de Preguntas Sugeridas desde la Base de Datos -->
-            <div>
-              <div class="flex items-center justify-between mb-3 px-1">
-                <span class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-                  <i class="fa-solid fa-bolt text-amber-400"></i>
-                  Preguntas Frecuentes Activas en Base de Datos
-                </span>
-                <button onclick="switchWorkspaceView('faqs')" class="text-xs text-indigo-400 hover:underline">
-                  Ver todas las FAQs &rarr;
-                </button>
-              </div>
-              <div id="suggested-prompts-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5"></div>
+            <div id="chat-messages-container"></div>
             </div>
           </div>
-
-          <!-- Hilo de Conversación Activa -->
-          <div id="chat-messages-list" class="hidden space-y-6 pb-4"></div>
-
-          <!-- Indicador de "Escribiendo respuesta..." -->
-          <div id="typing-indicator" class="hidden pt-4">
-            <div class="flex items-center gap-3.5">
-              <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center text-white shadow-md">
-                <i class="fa-solid fa-robot text-sm"></i>
-              </div>
-              <div class="glass-card px-4 py-3 rounded-2xl rounded-tl-xs flex items-center gap-3">
-                <div class="flex items-center gap-1">
-                  <span class="typing-dot"></span>
-                  <span class="typing-dot"></span>
-                  <span class="typing-dot"></span>
-                </div>
-                <span class="text-xs text-slate-300">Analizando FAQs activas e invocando modelo IA...</span>
-              </div>
-            </div>
-          </div>
-
-        </div>
-      </div>
-
-      <!-- Barra Inferior: Caja de Texto Inteligente (Composer) -->
-      <div class="p-4 sm:px-8 sm:pb-6 bg-gradient-to-t from-[#0b0f19] via-[#0b0f19]/95 to-transparent shrink-0">
-        <div class="max-w-4xl mx-auto">
-          <form onsubmit="handleChatSubmit(event)" class="glass-panel rounded-2xl p-2 pl-4 border border-slate-700/80 focus-within:border-indigo-500/80 transition shadow-2xl flex items-end gap-2">
-            <textarea
-              id="chat-input"
-              rows="1"
-              placeholder="Escribe tu pregunta al asistente (ej. ¿Cuáles son los horarios, medios de pago o tiempos de reembolso?)..."
-              class="chat-textarea flex-1 bg-transparent text-sm text-white placeholder-slate-400 focus:outline-none py-2.5 leading-relaxed select-text"
-              required
-            ></textarea>
-
-            <button
-              type="submit"
-              class="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs shadow-lg glow-indigo transition flex items-center gap-2 shrink-0 cursor-pointer"
-            >
-              <span>Enviar</span>
-              <i class="fa-solid fa-paper-plane text-xs"></i>
-            </button>
+          <p id="typing-row" class="typing-status" hidden>NexusAI está escribiendo…</p>
+          <div class="composer-wrap">
+          <form id="chat-form" class="composer composer-field">
+            <label for="chat-input" class="sr-only">Su mensaje</label><textarea id="chat-input" class="form-input" rows="1" maxlength="1500" required aria-describedby="chat-help chat-error" placeholder="Escribe tu mensaje aquí…"></textarea>
+            <div class="composer-tools"><button id="knowledge-button" type="button" class="chip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5c-3-2-7-2-10-1v15c3-1 7-1 10 1 3-2 7-2 10-1V4c-3-1-7-1-10 1Zm0 0v15"/></svg>Base de conocimiento</button><button id="send-button" class="send" type="submit" aria-label="Enviar mensaje"><span id="send-label" class="sr-only">Enviar</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 12 6-6 6 6M12 6v14"/></svg></button></div>
+            <p id="chat-help" class="sr-only">Enter para enviar · Shift + Enter para nueva línea</p>
+            <p id="chat-error" class="form-error" role="alert" hidden></p>
           </form>
-
-          <div class="flex items-center justify-between px-2 mt-2 text-[11px] text-slate-500">
-            <span>Presiona <kbd class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-mono text-[10px]">Enter</kbd> para enviar &bull; <kbd class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-mono text-[10px]">Shift + Enter</kbd> para salto de línea</span>
-            <span class="font-mono">POST /api/chat/send</span>
+          <p class="disclaimer composer-privacy">NexusAI puede cometer errores. Verifica la información importante. No compartas datos sensibles.</p>
           </div>
         </div>
-      </div>
-    </main>
-
-    <!-- ================= VISTA 2: BASE DE CONOCIMIENTO (CRUD FAQs) ================= -->
-    <section id="workspace-faqs" class="hidden flex-1 h-full flex flex-col overflow-hidden">
-      <header class="px-8 py-5 border-b border-slate-800/80 glass-panel flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 shrink-0">
-        <div>
-          <div class="flex items-center gap-2">
-            <h2 class="font-display font-bold text-lg text-white">Base de Conocimiento Oficial (FAQs)</h2>
-            <span class="px-2 py-0.5 rounded-md text-[10px] font-mono bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">/api/faqs</span>
-          </div>
-          <p class="text-xs text-slate-400 mt-0.5">
-            Administra las tablas <code class="text-indigo-300">Preguntas</code> y <code class="text-indigo-300">Respuestas</code> que alimentan el System Prompt del Chatbot.
-          </p>
-        </div>
-
-        <button
-          onclick="openFaqEditor()"
-          class="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg glow-indigo transition flex items-center gap-2 self-start sm:self-auto cursor-pointer"
-        >
-          <i class="fa-solid fa-plus"></i>
-          <span>Nueva Pregunta y Respuesta</span>
-        </button>
-      </header>
-
-      <!-- Barra de Búsqueda y Filtros por Categoría -->
-      <div class="px-8 py-4 border-b border-slate-800/60 flex flex-col md:flex-row md:items-center justify-between gap-3 shrink-0">
-        <div id="faq-category-pills" class="flex items-center gap-2 flex-wrap"></div>
-
-        <div class="relative w-full md:w-72">
-          <i class="fa-solid fa-magnifying-glass text-slate-500 text-xs absolute left-3.5 top-1/2 -translate-y-1/2"></i>
-          <input
-            type="text"
-            id="faq-search-input"
-            oninput="renderFaqsView()"
-            placeholder="Buscar en preguntas o respuestas..."
-            class="w-full pl-9 pr-4 py-2 rounded-xl bg-slate-900/90 border border-slate-700/80 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-          />
-        </div>
-      </div>
-
-      <!-- Tarjetas de FAQs -->
-      <div class="flex-1 overflow-y-auto p-8">
-        <div id="faqs-cards-grid" class="grid grid-cols-1 lg:grid-cols-2 gap-5 max-w-6xl mx-auto"></div>
-      </div>
     </section>
 
-    <!-- ================= VISTA 3: BITÁCORA SQL (TABLA CONVERSACIONES) ================= -->
-    <section id="workspace-sql" class="hidden flex-1 h-full flex flex-col overflow-hidden">
-      <header class="px-8 py-5 border-b border-slate-800/80 glass-panel flex items-center justify-between shrink-0">
-        <div>
-          <div class="flex items-center gap-2.5">
-            <h2 class="font-display font-bold text-lg text-white">Auditoría de Conversaciones (SQL Server)</h2>
-            <span id="sql-total-rows" class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">0 registros</span>
-          </div>
-          <p class="text-xs text-slate-400 mt-0.5">
-            Reflejo en tiempo real de la entidad <code class="text-indigo-300">Conversaciones</code> (<code class="text-slate-300">Id, SessionId, UsuarioId, PreguntaUsuario, RespuestaBot, Timestamp</code>).
-          </p>
-        </div>
+    <section id="view-help" aria-labelledby="help-title" hidden><div class="help-container"><div class="page-heading"><div><h1 id="help-title" tabindex="-1">Preguntas frecuentes</h1><p class="muted">Encuentre una respuesta o pregúntenos en el chat.</p></div></div><label for="help-search-input">Buscar una respuesta</label><input id="help-search-input" class="form-input" type="search" placeholder="Busque por tema…" aria-describedby="help-search-hint"><p id="help-search-hint" class="sr-only">Puede buscar sin tildes o con pequeños errores de escritura.</p><p id="help-results" class="field-help" role="status"></p><div id="help-list" class="help-list"></div></div></section>
 
-        <button onclick="clearConversationsLog()" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 transition flex items-center gap-2">
-          <i class="fa-solid fa-broom text-rose-400"></i>
-          <span>Limpiar bitácora local</span>
-        </button>
-      </header>
-
-      <div class="flex-1 overflow-y-auto p-8">
-        <div class="glass-card rounded-2xl overflow-hidden max-w-6xl mx-auto">
-          <div class="overflow-x-auto">
-            <table class="w-full text-left border-collapse">
-              <thead>
-                <tr class="bg-slate-900/90 border-b border-slate-800 text-[11px] uppercase tracking-wider text-slate-400 font-semibold">
-                  <th class="py-3.5 px-4">Id</th>
-                  <th class="py-3.5 px-4">SessionId (Guid)</th>
-                  <th class="py-3.5 px-4">UsuarioId (FK)</th>
-                  <th class="py-3.5 px-4">PreguntaUsuario</th>
-                  <th class="py-3.5 px-4">RespuestaBot</th>
-                  <th class="py-3.5 px-4">Timestamp</th>
-                </tr>
-              </thead>
-              <tbody id="sql-conversations-tbody"></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+    <div id="admin-shell" class="admin-shell" hidden>
+      <nav id="admin-navigation" class="admin-navigation" aria-label="Panel administrativo" hidden>
+        <div class="admin-rail-brand"><img class="admin-rail-mark" src="images/nexusai/mark.svg" width="32" height="32" alt=""><span>Panel de gestión<small>NexusAI</small></span></div>
+        <span class="admin-label">Administración</span>
+        <button id="tab-faqs" class="nav-tab" aria-controls="view-faqs" data-view="faqs" type="button"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M8 4H5v17h14V4h-3M8 3h8v4H8zM8 12h8M8 16h6"/></svg><span>Preguntas y respuestas</span></button>
+        <button id="tab-sql" class="nav-tab" aria-controls="view-sql" data-view="sql" type="button"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M4 5h16v15H4zM8 2v6M16 2v6M4 10h16M8 14h3M8 17h6"/></svg><span>Registros locales</span></button>
+        <button id="settings-button" class="btn btn-quiet" type="button"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="8" cy="7" r="3"/><circle cx="16" cy="17" r="3"/></svg><span>Ajustes del servicio</span></button>
+        <div class="admin-rail-footer"><button id="admin-return" class="btn" data-view="chat" type="button">← Volver al chat</button><p>Acceso de administrador</p></div>
+      </nav>
+    <section id="view-faqs" aria-labelledby="faqs-title" hidden>
+      <div class="page-heading"><div><p class="eyebrow">Panel administrativo</p><h1 id="faqs-title" tabindex="-1">Preguntas y respuestas</h1><p class="muted">Gestione la información que utiliza el asistente.</p></div><button id="add-faq" class="btn btn-accent" type="button" hidden>+ Agregar pregunta</button></div>
+      <div class="filter-bar"><div id="faq-category-pills" class="action-row" role="group" aria-label="Filtrar por categoría"></div><div class="search-field"><label for="faq-search-input">Buscar en el directorio</label><input type="search" id="faq-search-input" class="form-input" placeholder="Pregunta, categoría o respuesta" aria-describedby="faq-search-help"><p id="faq-search-help" class="field-help">Búsqueda aproximada: pruebe «reembolzo» o «contrasea».</p></div></div>
+      <p id="faq-results" class="muted" role="status"></p>
+      <div class="panel"><div class="table-scroll" tabindex="0" role="region" aria-label="Directorio de preguntas frecuentes, desplazamiento horizontal disponible"><table class="data-table"><caption class="sr-only">Preguntas frecuentes y respuestas oficiales</caption><thead><tr><th scope="col">ID</th><th scope="col">Categoría</th><th scope="col">Pregunta</th><th scope="col">Respuesta oficial</th><th scope="col">Estado</th><th id="faq-actions-heading" scope="col" hidden>Acciones</th></tr></thead><tbody id="faqs-table-body"></tbody></table></div></div>
     </section>
 
-  </div>
-
-  <!-- ================= MODAL DE AUTENTICACIÓN JWT ================= -->
-  <div id="auth-modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
-    <div class="glass-panel rounded-2xl max-w-md w-full p-6 border border-slate-700 shadow-2xl msg-enter">
-      <div class="flex items-center justify-between pb-4 border-b border-slate-800">
-        <div class="flex items-center gap-2.5">
-          <div class="w-8 h-8 rounded-lg bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400">
-            <i class="fa-solid fa-key text-sm"></i>
-          </div>
-          <div>
-            <h3 class="font-display font-bold text-sm text-white">Autenticación JWT</h3>
-            <p class="text-[11px] text-slate-400">POST /api/auth/login</p>
-          </div>
-        </div>
-        <button onclick="closeAuthModal()" class="text-slate-400 hover:text-white">
-          <i class="fa-solid fa-xmark"></i>
-        </button>
-      </div>
-
-      <!-- Botones de autocompletado rápido con usuarios del Data Seeder -->
-      <div class="mt-4">
-        <p class="text-[11px] text-slate-400 mb-2">Selecciona una cuenta del <b>Data Seeder</b> para autocompletar:</p>
-        <div class="grid grid-cols-2 gap-2.5">
-          <button
-            type="button"
-            onclick="fillDemoCredentials('Admin')"
-            class="p-2.5 rounded-xl bg-indigo-600/15 hover:bg-indigo-600/25 border border-indigo-500/30 text-left transition"
-          >
-            <div class="text-xs font-bold text-indigo-300 flex items-center justify-between">
-              <span>Rol Admin</span>
-              <i class="fa-solid fa-user-shield"></i>
-            </div>
-            <p class="text-[10px] text-slate-400 font-mono truncate mt-0.5">admin@chatbot.com</p>
-          </button>
-
-          <button
-            type="button"
-            onclick="fillDemoCredentials('User')"
-            class="p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700 text-left transition"
-          >
-            <div class="text-xs font-bold text-slate-200 flex items-center justify-between">
-              <span>Rol User</span>
-              <i class="fa-solid fa-user"></i>
-            </div>
-            <p class="text-[10px] text-slate-400 font-mono truncate mt-0.5">usuario@chatbot.com</p>
-          </button>
-        </div>
-      </div>
-
-      <form onsubmit="submitAuthForm(event)" class="mt-4 space-y-4">
-        <div>
-          <label class="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Email</label>
-          <input
-            type="email"
-            id="auth-email"
-            value="admin@chatbot.com"
-            required
-            class="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500"
-          />
-        </div>
-
-        <div>
-          <label class="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Contraseña</label>
-          <input
-            type="password"
-            id="auth-password"
-            value="Admin123!"
-            required
-            class="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500"
-          />
-        </div>
-
-        <div class="flex items-center justify-end gap-2 pt-2">
-          <button type="button" onclick="closeAuthModal()" class="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-medium hover:bg-slate-700">
-            Cancelar
-          </button>
-          <button type="submit" class="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg glow-indigo">
-            Iniciar Sesión y Firmar JWT
-          </button>
-        </div>
-      </form>
+    <section id="view-sql" aria-labelledby="history-title" hidden>
+      <div class="page-heading"><div><p class="eyebrow">Panel administrativo</p><h1 id="history-title" tabindex="-1">Registros locales</h1><p id="history-scope" class="muted"></p></div><div class="action-row"><button id="export-history" class="btn btn-primary" type="button">Exportar CSV</button><button id="clear-history" class="btn btn-secondary" type="button">Limpiar historial local</button></div></div>
+      <div class="kpi-grid"><div class="panel kpi"><h2>Consultas en esta bitácora local</h2><p id="kpi-total-chats">0</p></div><div class="panel kpi"><h2>Sesiones únicas registradas aquí</h2><p id="kpi-unique-sessions">0</p></div><div class="panel kpi"><h2>FAQs activas cargadas</h2><p id="kpi-active-faqs">0</p></div></div>
+      <div class="panel"><div class="table-scroll" tabindex="0" role="region" aria-label="Historial local, desplazamiento horizontal disponible"><table class="data-table"><caption class="sr-only">Copia local de consultas enviadas y respuestas recibidas</caption><thead><tr><th scope="col">N.º</th><th scope="col">Sesión</th><th scope="col">Usuario</th><th scope="col">Consulta</th><th scope="col">Respuesta</th><th scope="col">Fecha y hora</th></tr></thead><tbody id="sql-table-body"></tbody></table></div></div>
+    </section>
+    </div>
+  </main>
     </div>
   </div>
 
-  <!-- ================= MODAL CREAR / EDITAR FAQ ================= -->
-  <div id="faq-editor-modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
-    <div class="glass-panel rounded-2xl max-w-lg w-full p-6 border border-slate-700 shadow-2xl msg-enter">
-      <div class="flex items-center justify-between pb-4 border-b border-slate-800">
-        <h3 id="faq-editor-title" class="font-display font-bold text-sm text-white">Nueva Pregunta y Respuesta</h3>
-        <button onclick="closeFaqEditor()" class="text-slate-400 hover:text-white">
-          <i class="fa-solid fa-xmark"></i>
-        </button>
-      </div>
+  <dialog id="knowledge-modal" aria-labelledby="knowledge-title"><div class="panel-header"><h2 id="knowledge-title">Base de conocimiento</h2><button class="btn btn-secondary" type="button" data-close="knowledge-modal">Cerrar</button></div><div class="modal-body"><p id="faq-count-label" class="field-help"></p><div id="quick-topics-list" class="topic-list"></div><button id="see-all-help" class="btn btn-secondary" type="button">Ver toda la ayuda →</button></div></dialog>
+  <dialog id="preferences-modal" aria-labelledby="preferences-title"><div class="panel-header"><h2 id="preferences-title">Preferencias visuales</h2><button class="btn btn-secondary" type="button" data-close="preferences-modal">Cerrar</button></div><div class="modal-body"><label for="theme-select">Apariencia<select id="theme-select" class="form-input"><option value="light">Claro</option><option value="dark">Oscuro</option></select></label><p class="field-help">Solo se guarda la apariencia en este navegador. La configuración del proveedor pertenece al administrador.</p></div></dialog>
 
-      <form onsubmit="saveFaqForm(event)" class="mt-4 space-y-4">
-        <input type="hidden" id="edit-faq-id" />
-
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div class="sm:col-span-2">
-            <label class="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Categoría</label>
-            <input
-              type="text"
-              id="edit-faq-categoria"
-              placeholder="Ej. Pagos y Facturación"
-              required
-              class="w-full px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500"
-            />
-          </div>
-          <div>
-            <label class="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Estado</label>
-            <select
-              id="edit-faq-estado"
-              class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500"
-            >
-              <option value="true">Activo (En IA)</option>
-              <option value="false">Inactivo</option>
-            </select>
-          </div>
-        </div>
-
-        <div>
-          <label class="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Pregunta (`Tabla: Preguntas`)</label>
-          <input
-            type="text"
-            id="edit-faq-pregunta"
-            placeholder="¿Cuál es la consulta frecuente del usuario?"
-            required
-            class="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500"
-          />
-        </div>
-
-        <div>
-          <label class="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Respuesta Oficial (`Tabla: Respuestas`)</label>
-          <textarea
-            id="edit-faq-respuesta"
-            rows="4"
-            placeholder="Escribe la respuesta institucional que el modelo de IA usará para responder..."
-            required
-            class="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500"
-          ></textarea>
-        </div>
-
-        <div class="flex items-center justify-end gap-2 pt-2">
-          <button type="button" onclick="closeFaqEditor()" class="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-medium hover:bg-slate-700">
-            Cancelar
-          </button>
-          <button type="submit" class="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg glow-indigo">
-            Guardar en Base de Conocimiento
-          </button>
-        </div>
-      </form>
+  <dialog id="auth-modal" aria-labelledby="auth-title">
+    <div class="panel-header"><h2 id="auth-title">Bienvenido a NexusAI</h2><button type="button" class="btn btn-secondary" data-close="auth-modal">Cerrar</button></div>
+    <div class="auth-layout">
+    <aside class="auth-art" aria-label="Acerca de NexusAI"><img src="images/nexusai/mark.svg" width="44" height="44" alt=""><h3>Respuestas claras.<br>Atención más cercana.</h3><p>Acceda a su espacio de atención. Sus credenciales y su token no se guardan en este navegador.</p><div class="auth-orbit" aria-hidden="true"></div></aside>
+    <form id="auth-form" class="modal-body">
+      <p id="auth-mode-description" class="muted"></p>
+      <details id="demo-accounts" class="notice" hidden><summary>Probar una cuenta de demostración</summary><p>Estas cuentas no dan acceso al servidor.</p><div class="action-row"><button type="button" class="btn btn-secondary" data-demo-role="Admin">Cargar Admin</button><button type="button" class="btn btn-secondary" data-demo-role="User">Cargar User</button></div></details>
+      <div><label for="auth-email">Correo electrónico</label><input class="form-input" id="auth-email" type="email" maxlength="150" autocomplete="username" required aria-describedby="auth-error"></div>
+      <div><label for="auth-password">Contraseña</label><input class="form-input" id="auth-password" type="password" autocomplete="current-password" required aria-describedby="auth-error"></div>
+      <p id="auth-error" class="form-error" role="alert" hidden></p>
+      <div class="modal-actions"><button type="button" class="btn btn-secondary" data-close="auth-modal">Cancelar</button><button class="btn btn-primary" type="submit">Ingresar</button></div>
+    </form>
     </div>
-  </div>
+  </dialog>
 
-  <!-- ================= MODAL CONFIGURACIÓN MOTOR IA (LLM) ================= -->
-  <div id="ai-settings-modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
-    <div class="glass-panel rounded-2xl max-w-md w-full p-6 border border-slate-700 shadow-2xl msg-enter">
-      <div class="flex items-center justify-between pb-4 border-b border-slate-800">
-        <div class="flex items-center gap-2.5">
-          <div class="w-8 h-8 rounded-lg bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400">
-            <i class="fa-solid fa-microchip text-sm"></i>
-          </div>
-          <div>
-            <h3 class="font-display font-bold text-sm text-white">Configuración del Motor IA (LLM)</h3>
-            <p class="text-[11px] text-slate-400">Conecta un LLM en la nube sin costo o usa tu API Key</p>
-          </div>
-        </div>
-        <button onclick="closeAiSettingsModal()" class="text-slate-400 hover:text-white">
-          <i class="fa-solid fa-xmark"></i>
-        </button>
-      </div>
+  <dialog id="faq-modal" aria-labelledby="faq-modal-title">
+    <div class="panel-header"><h2 id="faq-modal-title">Registrar pregunta frecuente</h2><button type="button" class="btn btn-secondary" data-close="faq-modal">Cerrar</button></div>
+    <form id="faq-form" class="modal-body">
+      <input id="edit-faq-id" type="hidden">
+      <div><label for="edit-faq-categoria">Categoría</label><input class="form-input" id="edit-faq-categoria" maxlength="100" required aria-describedby="faq-error"></div>
+      <div><label for="edit-faq-estado">Estado</label><select class="form-input" id="edit-faq-estado"><option value="true">Activa</option><option value="false">Inactiva</option></select></div>
+      <div><label for="edit-faq-pregunta">Pregunta</label><input class="form-input" id="edit-faq-pregunta" maxlength="500" required aria-describedby="faq-error"></div>
+      <div><label for="edit-faq-respuesta">Respuesta oficial</label><textarea class="form-input" id="edit-faq-respuesta" rows="5" required aria-describedby="faq-error"></textarea></div>
+      <p id="faq-error" class="form-error" role="alert" hidden></p><p id="faq-sync-warning" class="notice notice-warning" hidden>La API confirmó el guardado, pero no se pudo actualizar la lista. Cierre el editor y compruebe la API antes de hacer otro cambio; no vuelva a guardar esta operación.</p>
+      <div class="modal-actions"><button type="button" class="btn btn-secondary" data-close="faq-modal">Cancelar</button><button class="btn btn-accent" type="submit">Guardar cambios</button></div>
+    </form>
+  </dialog>
 
-      <form onsubmit="saveAiSettings(event)" class="mt-4 space-y-4">
-        <div>
-          <label class="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Proveedor de Inteligencia Artificial</label>
-          <select
-            id="ai-provider-select"
-            onchange="toggleApiKeyField()"
-            class="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500"
-          >
-            <option value="free-llm">IA en la Nube Gratuita (Sin API Key • Recomendado)</option>
-            <option value="gemini">Google Gemini 1.5 Flash (Con tu API Key)</option>
-            <option value="openai">OpenAI GPT-4o Mini (Con tu API Key)</option>
-          </select>
-        </div>
+  <dialog id="settings-modal" aria-labelledby="settings-title">
+    <div class="panel-header"><h2 id="settings-title">Conexión y privacidad</h2><button type="button" class="btn btn-secondary" data-close="settings-modal">Cerrar</button></div>
+    <form id="settings-form" class="modal-body">
+      <details id="connection-details"><summary>Detalles técnicos del servicio</summary><p id="connection-message"></p></details>
+      <p class="muted">En modo API el servidor configura el proveedor y custodia sus claves. La demo funciona localmente salvo que active un servicio externo.</p>
+      <button id="manage-connection" class="btn btn-secondary" type="button">Comprobar conexión con el servidor</button>
+      <div><label for="ai-provider-select">Servicio de la demo</label><select id="ai-provider-select" class="form-input"><option value="local">Solo FAQs locales (sin envío externo)</option><option value="free-llm">Pollinations</option><option value="gemini">Google Gemini</option><option value="openai">OpenAI</option></select></div>
+      <div id="ai-apikey-box" hidden><label for="ai-apikey-input">API key temporal de demostración</label><input id="ai-apikey-input" type="password" class="form-input" autocomplete="off" aria-describedby="key-help"><p id="key-help" class="field-help">Solo en memoria durante esta página. Nunca se guarda en localStorage. No use una clave de producción.</p></div>
+      <div id="external-consent-box" class="notice notice-warning" hidden><p>El servicio seleccionado recibirá su consulta, los últimos mensajes y las FAQs activas. No envíe datos sensibles. No se probará otro proveedor automáticamente.</p><label class="check-label"><input id="external-consent" type="checkbox"> Autorizo ese envío durante esta página.</label></div>
+      <p id="settings-error" class="form-error" role="alert" hidden></p><div class="modal-actions"><button type="button" class="btn btn-secondary" data-close="settings-modal">Cancelar</button><button class="btn btn-primary" type="submit">Aplicar preferencias</button></div>
+    </form>
+  </dialog>
 
-        <div id="ai-apikey-box" class="hidden">
-          <label class="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Tu API Key</label>
-          <input
-            type="password"
-            id="ai-apikey-input"
-            placeholder="AIzaSy... o sk-..."
-            class="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-indigo-500"
-          />
-          <p class="text-[10px] text-slate-500 mt-1">Se guarda únicamente en tu navegador para tus pruebas.</p>
-        </div>
-
-        <div class="p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-[11px] text-indigo-200 leading-relaxed">
-          <i class="fa-solid fa-wand-magic-sparkles text-indigo-400 mr-1"></i>
-          El modelo recibe automáticamente todas las <b>FAQs activas</b> en su <i>System Prompt</i> y además puede responder saludos, charla casual y preguntas de cualquier tema con memoria de la conversación.
-        </div>
-
-        <div class="flex items-center justify-end gap-2 pt-2">
-          <button type="button" onclick="closeAiSettingsModal()" class="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-medium hover:bg-slate-700">
-            Cancelar
-          </button>
-          <button type="submit" class="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg glow-indigo">
-            Guardar Motor IA
-          </button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <script src="js/app.js"></script>
+  <dialog id="confirm-modal" aria-labelledby="confirm-title" aria-describedby="confirm-description">
+    <form id="confirm-form" class="modal-body"><h2 id="confirm-title">Confirmar acción</h2><p id="confirm-description"></p><div class="modal-actions"><button type="button" class="btn btn-secondary" data-close="confirm-modal" autofocus>Cancelar</button><button id="confirm-accept" class="btn btn-primary" type="submit">Confirmar</button></div></form>
+  </dialog>
+  <div id="chat-announcement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+  <noscript><p class="notice">Active JavaScript para usar el centro de consultas.</p></noscript>
 </body>
 </html>
