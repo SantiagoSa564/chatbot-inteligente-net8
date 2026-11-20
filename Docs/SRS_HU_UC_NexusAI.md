@@ -1,5 +1,7 @@
 # ESPECIFICACIÓN DE REQUISITOS DE SOFTWARE (SRS), HISTORIAS DE USUARIO (HU) Y CASOS DE USO (UC)
 
+> **Nota de implementación (20/11/2026):** este documento describe el diseño original, que planteaba SQL Server. La implementación se ejecuta finalmente sobre **PostgreSQL 17 con EF Core + Npgsql**, para desplegar en Supabase/Railway. Los requisitos funcionales, roles, contratos y reglas de negocio no cambian; solo el motor de base de datos. Ver `Docs/EJECUCION_REAL_LOCAL.md`.
+
 - **Proyecto:** Software de Chatbot Inteligente de Atención al Usuario (**NexusAI / Centro de Atención al Usuario**)
 - **Autor / Desarrollador:** Santiago Muñoz Salazar (`santiagomunozsa12@gmail.com`)
 - **Instructor:** Carlos Fabian Martínez Mora

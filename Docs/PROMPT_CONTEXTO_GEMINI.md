@@ -27,8 +27,8 @@ El proyecto es entregable académico del **SENA, ficha 3413988, instructor Carlo
 
 ### Backend
 - **.NET 8 / ASP.NET Core Web API** (`net8.0`), C# con `Nullable` e `ImplicitUsings` habilitados.
-- **Entity Framework Core 8.0.10** — enfoque **Code First**, proveedor **SQL Server** (`Microsoft.EntityFrameworkCore.SqlServer`).
-- **Migración manual** `20261110000000_InitialCreate` + `ApplicationDbContextModelSnapshot` (escrita a mano porque el entorno no tenía SDK instalado).
+- **Entity Framework Core 8.0.10** — enfoque **Code First**, proveedor **PostgreSQL** (`Npgsql.EntityFrameworkCore.PostgreSQL`).
+- **Migración EF** `20261120160314_InitialCreate` + `ApplicationDbContextModelSnapshot`, generada con `dotnet ef` para Npgsql.
 - **JWT Bearer** — `Microsoft.AspNetCore.Authentication.JwtBearer` 8.0.10, tokens simétricos HMAC-SHA256, expiración configurable (120 min), `ClockSkew = TimeSpan.Zero`.
 - **BCrypt.Net-Next 4.0.3** — hash de contraseñas (`BCrypt.HashPassword` / `Verify`).
 - **Swashbuckle.AspNetCore 6.6.2** — Swagger UI con esquema de seguridad Bearer.
@@ -50,9 +50,9 @@ El proyecto es entregable académico del **SENA, ficha 3413988, instructor Carlo
 - Parámetros de generación del backend: `temperature = 0.2`, `maxOutputTokens = 800`.
 
 ### Infraestructura y herramientas
-- **SQL Server** (local, Express, LocalDB o contenedor `mcr.microsoft.com/mssql/server:2022-latest` en el puerto 1433).
+- **PostgreSQL 17** (contenedor `postgres:17` en Docker, o base gestionada en Supabase/Railway).
 - **Git + GitHub** — repo `https://github.com/SantiagoSa564/chatbot-inteligente-net8`, ramas `main`, `dev`, `qa`.
-- Script DDL/DML alternativo en T-SQL: `Data/database.sql`.
+- Script DDL/DML para PostgreSQL y carga en Supabase: `database/supabase/` (esquema, datos y verificación). `Data/database.sql` conserva el DDL histórico de SQL Server.
 - Documentación: SRS en `.docx`, historias de usuario, casos de uso y diagramas. Los prototipos Figma y videos antiguos se eliminaron por decisión del usuario.
 
 ## 4. Estructura del repositorio
@@ -77,8 +77,8 @@ chatbot/
 ├── Data/
 │   ├── ApplicationDbContext.cs
 │   ├── DbInitializer.cs        → seed de usuarios y 5 FAQs
-│   └── database.sql            → DDL + DML para SQL Server
-├── Migrations/  20261110000000_InitialCreate(.Designer).cs, ApplicationDbContextModelSnapshot.cs
+│   └── database.sql            → DDL + DML histórico de SQL Server
+├── Migrations/  20261120160314_InitialCreate(.Designer).cs, ApplicationDbContextModelSnapshot.cs
 ├── wwwroot/
 │   ├── index.html              → SPA (chat, FAQs, historial)
 │   ├── css/styles.css          → design tokens + componentes
@@ -191,12 +191,13 @@ dotnet run
 # Frontend: https://localhost:7xxx/  (wwwroot/index.html)
 ```
 
-Contenedor de SQL Server de referencia:
+Entorno de referencia (Docker Compose con PostgreSQL 17 y la API):
 
 ```
-docker run -e "ACCEPT_EULA=Y" -e "MSSQL_SA_PASSWORD=TuPasswordSegura123!" \
-  -p 1433:1433 -d mcr.microsoft.com/mssql/server:2022-latest
+docker compose --env-file "$HOME/.config/nexusai/real.env" -f compose.real.yml up --build -d --wait
 ```
+
+Detalles y verificación real en `Docs/EJECUCION_REAL_LOCAL.md`.
 
 Credenciales sembradas: `admin@chatbot.com / Admin123!` (Admin) y `usuario@chatbot.com / User123!` (User).
 
@@ -207,7 +208,7 @@ Credenciales sembradas: `admin@chatbot.com / Admin123!` (Admin) y `usuario@chatb
 - **RF3** — Atención conversacional: el usuario envía un mensaje y recibe respuesta del asistente.
 - **RF4** — Generación de respuestas con IA usando las FAQs activas como contexto (RAG ligero).
 - **RF5** — Registro y consulta del historial de conversaciones por `SessionId`, con exportación CSV en el frontend.
-- **RNF** — Seguridad de credenciales, separación por capas, disponibilidad del canal 24/7, usabilidad responsive, mantenibilidad (DI + DTOs), tiempo de respuesta del LLM, y persistencia en SQL Server.
+- **RNF** — Seguridad de credenciales, separación por capas, disponibilidad del canal 24/7, usabilidad responsive, mantenibilidad (DI + DTOs), tiempo de respuesta del LLM, y persistencia en PostgreSQL.
 
 ## 13. Documentación y entregables existentes
 
@@ -220,8 +221,9 @@ Credenciales sembradas: `admin@chatbot.com / Admin123!` (Admin) y `usuario@chatb
 
 ## 14. Estado actual y limitaciones conocidas (sé honesto sobre esto)
 
-- En el equipo de desarrollo **no hay SDK de .NET instalado**, así que el proyecto **no se ha compilado ni ejecutado localmente**; la migración y el SQL se escribieron a mano. Cualquier cambio debe explicarse asumiendo que aún falta validar con `dotnet build`.
-- No hay SQL Server levantado (Docker daemon detenido).
+- El proyecto **se ha compilado y ejecutado** con Docker (SDK .NET 8 dentro del contenedor). Pasaron 33 pruebas de interfaz, 20 verificaciones HTTP reales y el flujo Playwright real contra PostgreSQL 17.
+- El host no tiene SDK de .NET instalado: la compilación y `dotnet ef` se ejecutan en contenedores `mcr.microsoft.com/dotnet/sdk:8.0`.
+- La IA real sigue pendiente: no se enviaron mensajes a proveedores.
 - El frontend funciona en modo demo sin backend, lo cual puede enmascarar errores de integración.
 - Pendientes técnicos: enviar historial al LLM, tests automatizados, rate limiting, mover secretos a User Secrets, paginación en el historial, refresh tokens, y validación de unicidad de email a nivel de índice.
 

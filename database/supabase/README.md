@@ -1,25 +1,27 @@
 # Base de datos NexusAI para Supabase
 
-Copia de la base **SQL Server** del proyecto (`NexusAI_Real_Dev`) convertida a **PostgreSQL**, lista para cargarse en Supabase. El esquema es equivalente al de `Migrations/20261110000000_InitialCreate.cs` y los datos provienen del entorno real local del 20/11/2026.
+NexusAI usa ahora **PostgreSQL** (EF Core + Npgsql). Esta carpeta contiene el esquema y los datos iniciales para crear la base en **Supabase**, listos para pegar en el SQL Editor.
+
+El esquema corresponde a la migración `Migrations/20261120160314_InitialCreate.cs`, generada por EF Core 8.0.10 para Npgsql, y los datos son los del seeder `Data/DbInitializer.cs` ejecutado contra PostgreSQL 17.
 
 ## Contenido
 
 | Archivo | Qué hace |
 |---|---|
-| `01_esquema.sql` | Crea las tablas `Usuarios`, `Preguntas`, `Respuestas` y `Conversaciones`, con claves, índices y relaciones. **Borra las tablas si ya existen.** |
-| `02_datos.sql` | Inserta las filas exportadas y sincroniza las secuencias de identidad. |
-| `03_verificacion.sql` | Consultas de conteo para comprobar la carga. |
+| `01_esquema.sql` | Crea `Usuarios`, `Preguntas`, `Respuestas`, `Conversaciones` y la tabla de historial de EF, con claves, índices y relaciones. **Borra las tablas si ya existen.** |
+| `02_datos.sql` | Inserta las filas iniciales, marca la migración como aplicada y sincroniza las secuencias de identidad. |
+| `03_verificacion.sql` | Consultas de conteo e integridad para comprobar la carga. |
 
-Filas incluidas: **4 usuarios, 5 preguntas, 5 respuestas y 2 conversaciones**.
+Filas incluidas: **2 usuarios, 5 preguntas, 5 respuestas y 0 conversaciones**. Se excluyeron las cuentas `@example.test` que crean las pruebas automáticas.
 
-## Cómo cargarlo en Supabase
+## Cargar en Supabase
 
 ### Opción A · SQL Editor (recomendada)
 
 1. Entra al proyecto en [supabase.com](https://supabase.com) → **SQL Editor** → **New query**.
 2. Pega el contenido completo de `01_esquema.sql` y pulsa **Run**.
 3. Repite con `02_datos.sql`.
-4. Ejecuta `03_verificacion.sql` para confirmar los conteos.
+4. Ejecuta `03_verificacion.sql` y comprueba los conteos.
 
 ### Opción B · psql
 
@@ -31,50 +33,54 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/supabase/02_datos.sql
 psql "$DATABASE_URL" -f database/supabase/03_verificacion.sql
 ```
 
-La contraseña de la base y la cadena de conexión **no deben guardarse en el repositorio**. Este paquete no contiene credenciales.
+La contraseña y la cadena de conexión **no deben guardarse en el repositorio**.
 
 ## Verificación esperada
 
 ```
 usuarios | preguntas | respuestas | conversaciones
 ---------+-----------+------------+----------------
-       4 |         5 |          5 |              2
+       2 |         5 |          5 |              0
 ```
 
-También puedes comprobar en **Table Editor** que:
+Además:
+- `__EFMigrationsHistory` debe tener 1 fila: `20261120160314_InitialCreate`.
 - `Usuarios` conserva los roles `Admin` y `User`.
-- `Respuestas` mantiene tildes, `¿?`, comillas escapadas y el texto de varias líneas de `Conversaciones`.
-- `Conversaciones.SessionId` es `uuid` y `Timestamp` está en UTC.
+- `Respuestas` mantiene tildes, `¿?` y comillas escapadas.
+- `Conversaciones` está vacía (inicio limpio).
 
-## Datos que puedes descartar
+## Conectar la API a Supabase
 
-- **Usuarios 3 y 4** (`integration-...@example.test`): cuentas creadas por las pruebas automáticas de integración. Se pueden eliminar.
-- **Conversaciones**: 2 mensajes reales generados durante las pruebas del chat. Si quieres iniciar limpio:
+El backend ya usa Npgsql, así que **solo hay que cambiar la cadena de conexión** mediante la variable de entorno `ConnectionStrings__DefaultConnection` (en Railway: *Variables*; en local: archivo de entorno o `appsettings.Development.json`).
 
-```sql
-truncate table "Conversaciones" restart identity;
+Npgsql **no acepta el formato URI** de Supabase (`postgresql://...`); hay que usar pares `clave=valor`:
+
+```text
+Host=db.<proyecto>.supabase.co;Port=5432;Database=postgres;Username=postgres;Password=<contraseña>;SSL Mode=Require
 ```
 
-Las contraseñas se conservan como hash **BCrypt**, el mismo formato que usa .NET, así que las cuentas `admin@chatbot.com` (`Admin123!`) y `usuario@chatbot.com` (`User123!`) siguen siendo válidas si la API llega a usar esta base.
+Si usas el *pooler* de Supabase (puerto `6543`), el usuario incluye el proyecto:
 
-## Importante: cargar los datos no conecta la API a Supabase
-
-El backend actual (`ChatbotApi.csproj`) usa **Entity Framework Core con el proveedor SQL Server**:
-
-```xml
-<PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" ... />
+```text
+Host=aws-0-<región>.pooler.supabase.com;Port=6543;Database=postgres;Username=postgres.<proyecto>;Password=<contraseña>;SSL Mode=Require
 ```
 
-Cargar este paquete en Supabase **no cambia el comportamiento de la aplicación**: la API seguirá leyendo y escribiendo en SQL Server. Para que NexusAI use Supabase de verdad hay que cambiar el proveedor de EF a **Npgsql** (paquete, cadena de conexión y regenerar las migraciones), lo que implica modificar el backend. Ese cambio **no se ha hecho** porque el alcance acordado excluye tocar el backend; queda pendiente de tu aprobación explícita.
+Notas:
+- La base de Supabase se llama `postgres` y el esquema es `public`; no cambies `Database=postgres`.
+- `SSL Mode=Require` es obligatorio: Supabase no acepta conexiones sin TLS.
+- Al arrancar, la API aplica `Database.MigrateAsync()`. Como `02_datos.sql` registra la migración en `__EFMigrationsHistory`, **no intentará recrear tablas**; si la base está vacía, la crea y siembra sola.
+- El destino recomendado en producción es la conexión directa o el *session pooler* (puerto `5432`). El *transaction pooler* (`6543`) puede fallar con EF si se habilitan sentencias preparadas.
 
 ## Seguridad en Supabase
 
-- Si expones estas tablas por la **API REST de Supabase** con la clave `anon`, activa **Row Level Security** y define políticas. Con RLS desactivado, cualquiera con la clave pública puede leer `Usuarios`, incluidos los hashes de contraseña.
-- La API .NET se conecta por cadena de conexión con el rol de base de datos y no pasa por RLS; la clave `service_role` también las omite y **nunca** debe usarse en el frontend.
+- Si expones estas tablas por la API REST de Supabase con la clave `anon`, activa **Row Level Security** y define políticas. Sin RLS, cualquiera con la clave pública puede leer `Usuarios`, incluidos los hashes de contraseña.
+- La API .NET se conecta con la cadena de Postgres y no pasa por RLS; la clave `service_role` también las omite y **nunca** debe usarse en el frontend.
+- No subas la cadena de conexión ni la contraseña al repositorio.
 - Estas tablas son datos de **desarrollo**, no de producción.
 
-## Origen y método
+## Origen y validación
 
-- Origen: contenedor `nexusai-real-dev-sql-1` (SQL Server 2022 Developer), base `NexusAI_Real_Dev`.
-- Exportación: `sqlcmd` generando `INSERT` con comillas simples escapadas; fechas convertidas a ISO y fijadas como UTC (`set time zone 'UTC'`).
-- Validación: los dos scripts se ejecutaron sobre **PostgreSQL 17** real. Se comprobó el conteo de filas, las tildes, las comillas escapadas, los saltos de línea, los `uuid`, las fechas UTC, el avance de las secuencias de identidad y el borrado en cascada de `Respuestas`.
+- Esquema: migración EF Core 8.0.10 generada para `Npgsql.EntityFrameworkCore.PostgreSQL`.
+- Datos: PostgreSQL 17 del entorno Docker (`NexusAI_Real_Dev`), tras migrar y sembrar con la API.
+- Validado sobre un **PostgreSQL 17 limpio**: carga de `01` + `02`, conteos, integridad referencial, `uuid`, fechas UTC y secuencias de identidad.
+- Validado también de extremo a extremo: una instancia de la API apuntando a esa base importada sirvió las 5 FAQs, permitió el login de `admin@chatbot.com` y **no duplicó** el seeder ni recreó tablas.

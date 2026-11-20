@@ -29,7 +29,7 @@ async function ready() {
     } catch { /* Retry availability GET only, never mutations. */ }
     await delay(1000);
   }
-  throw new Error('API/SQL not ready after 60 availability checks.');
+  throw new Error('API/PostgreSQL not ready after 60 availability checks.');
 }
 (async () => {
   console.log('Real local API integration checks (no mocks). AI calls require --ai.');
@@ -51,7 +51,7 @@ async function ready() {
   console.log('INFO One test User remains in the isolated development database; its password/token are not logged.');
   await request('POST', '/api/auth/register', userData, undefined, 409);
   const authenticated = await request('POST', '/api/auth/login', { email: userData.email, password: userData.password }); assert.equal(authenticated.rol, 'User');
-  const faq = { textoPregunta: `Pregunta integración ${randomUUID()}`, textoRespuesta: 'Respuesta de prueba SQL, sin información personal.', categoria: 'Integración local', estadoActivo: false };
+  const faq = { textoPregunta: `Pregunta integración ${randomUUID()}`, textoRespuesta: 'Respuesta de prueba PostgreSQL, sin información personal.', categoria: 'Integración local', estadoActivo: false };
   await request('POST', '/api/faqs', faq, undefined, 401);
   await request('POST', '/api/faqs', faq, user.token, 403);
   let id;
@@ -69,7 +69,7 @@ async function ready() {
       const answer = await request('POST', '/api/chat/send', { sessionId, mensaje: '¿Cuáles son los horarios de atención al cliente?' }, user.token);
       assert.equal(answer.sessionId, sessionId); assert.equal(answer.usuarioId, user.usuarioId); assert.ok(answer.respuestaBot?.trim());
       const history = await request('GET', `/api/chat/history/${sessionId}`); assert.ok(history.some(row => row.conversacionId === answer.conversacionId));
-      console.log('INFO Chat response and SQL history checked. Provider success must also be confirmed; HTTP 200 alone can contain a backend fallback/error message.');
+      console.log('INFO Chat response and PostgreSQL history checked. Provider success must also be confirmed; HTTP 200 alone can contain a backend fallback/error message.');
     } else console.log('PENDING Real AI generation: provider/key/consent not yet supplied. No provider request sent.');
   } finally {
     if (id) { await request('DELETE', `/api/faqs/${id}`, undefined, admin.token, 204); await request('GET', `/api/faqs/${id}`, undefined, admin.token, 404); }

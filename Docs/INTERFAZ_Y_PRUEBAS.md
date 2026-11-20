@@ -1,10 +1,10 @@
 # Interfaz NexusAI: chat de servicio y pruebas
 
-> **Ejecución real local validada:** API .NET 8 y SQL Server arrancados mediante Docker en `http://localhost:5080`. Pasaron 20 verificaciones HTTP reales y el flujo Playwright real de login/JWT y CRUD, sin mocks de API. Migración confirmada por consulta SQL. La IA sigue pendiente por decisión del usuario; no se enviaron mensajes a proveedores. Ver `Docs/EJECUCION_REAL_LOCAL.md`. Las notas de falta de entorno que siguen describen etapas anteriores.
+> **Ejecución real local validada:** API .NET 8 y PostgreSQL 17 arrancados mediante Docker en `http://localhost:5080`. Pasaron 20 verificaciones HTTP reales y el flujo Playwright real de login/JWT y CRUD, sin mocks de API. Migración y datos confirmados por consulta directa. La IA sigue pendiente por decisión del usuario; no se enviaron mensajes a proveedores. Ver `Docs/EJECUCION_REAL_LOCAL.md`. Las notas de falta de entorno que siguen describen etapas anteriores.
 
 > **Actualización de estructura:** el chatbot fue reconstruido sobre el shell de v0, no sobre el HTML anterior. Lateral permanente de 265px en escritorio (colapsable/drawer móvil), topbar de 70px y editor con Base de conocimiento y Enviar dentro del mismo contenedor. La antigua navegación horizontal fue retirada. Ver `Docs/CHAT_LAYOUT_V0.md` y `Docs/Capturas/chat-v0/` para la validación vigente. Las descripciones anteriores de conversaciones exclusivamente bajo demanda quedan sustituidas por esta estructura.
 
-> **Validación vigente de esta reconstrucción:** suite final ejecutada, **33/33 pruebas aprobadas** (26 de navegador y 7 unitarias), 0 fallidas y 0 omitidas. La primera pasada tuvo 4 fallos de expectativas/selectores anteriores; se corrigieron y se repitió la suite completa. Las cifras de 27/31 que aparecen más abajo documentan etapas anteriores. Backend .NET/SQL/IA real pendiente.
+> **Validación vigente de esta reconstrucción:** suite final ejecutada, **33/33 pruebas aprobadas** (26 de navegador y 7 unitarias), 0 fallidas y 0 omitidas. La primera pasada tuvo 4 fallos de expectativas/selectores anteriores; se corrigieron y se repitió la suite completa. Las cifras de 27/31 que aparecen más abajo documentan etapas anteriores. El backend real ya está validado contra PostgreSQL; la IA sigue pendiente.
 
 ## Referencia visual vigente
 
@@ -29,7 +29,7 @@ El panel está contenido en `#admin-shell`, oculto fuera del espacio administrat
 
 `switchView` valida permisos también al abrir hashes o invocar funciones directamente. Los manejadores de CRUD, ajustes, exportación y limpieza vuelven a comprobar el rol. Al cerrar sesión o recibir 401 se oculta el panel, se vacían tablas y formularios administrativos y se restaura el espacio personal correspondiente; las claves temporales se retiran de memoria y del formulario.
 
-La protección real no depende de ocultar controles: la API conserva `[Authorize(Roles = "Admin")]` para mutaciones, y ahora `GET /api/faqs` fuerza el filtro activo para cualquier identidad no Admin, aunque solicite `onlyActive=false`. `GET /api/faqs/{id}` devuelve 404 para una FAQ inactiva solicitada por alguien no Admin. El login actualiza el directorio con el JWT real. Estos cambios no requieren migración de base de datos. El servidor real aún requiere validación con SDK .NET y SQL Server, no disponibles en este entorno.
+La protección real no depende de ocultar controles: la API conserva `[Authorize(Roles = "Admin")]` para mutaciones, y ahora `GET /api/faqs` fuerza el filtro activo para cualquier identidad no Admin, aunque solicite `onlyActive=false`. `GET /api/faqs/{id}` devuelve 404 para una FAQ inactiva solicitada por alguien no Admin. El login actualiza el directorio con el JWT real. Estos cambios no requieren migración de base de datos. El servidor real se validó después con SDK .NET 8 y PostgreSQL 17 en Docker.
 
 **Registros locales no es una consola global de todas las conversaciones del servidor.** No se agregó un endpoint de auditoría global ni se mezclaron historiales entre cuentas para simularlo.
 
@@ -79,9 +79,9 @@ npx playwright install chromium
 npm test
 ```
 
-La suite levanta un servidor estático efímero, simula los endpoints de la API y ejecuta Chromium con Playwright y axe-core. No usa SQL Server ni envía consultas a proveedores reales. Comprueba demo explícita, roles, CRUD, inyección de contenido, fallos de API, bloqueo de reenvío, 401, 429, sesiones concurrentes, almacenamiento inválido, CSV, foco, contraste automatizado, reducción de movimiento y anchos de 320 a 1440px.
+La suite levanta un servidor estático efímero, simula los endpoints de la API y ejecuta Chromium con Playwright y axe-core. No usa PostgreSQL ni envía consultas a proveedores reales. Comprueba demo explícita, roles, CRUD, inyección de contenido, fallos de API, bloqueo de reenvío, 401, 429, sesiones concurrentes, almacenamiento inválido, CSV, foco, contraste automatizado, reducción de movimiento y anchos de 320 a 1440px.
 
-No sustituye `dotnet build`, pruebas de integración con SQL Server/JWT/LLM reales ni una revisión manual con lector de pantalla, teclado virtual, zoom real al 200% y políticas de privacidad. No afirmar cumplimiento completo WCAG solo por pasar axe.
+No sustituye `dotnet build`, pruebas de integración con PostgreSQL/JWT/LLM reales ni una revisión manual con lector de pantalla, teclado virtual, zoom real al 200% y políticas de privacidad. No afirmar cumplimiento completo WCAG solo por pasar axe.
 
 La suite incluye pruebas de roles, rutas restringidas, cambio de identidad, cierre de sesión y 401, FAQs inactivas, formato Markdown, bloqueo de inyecciones y recursos remotos, enlaces seguros, copia, degradación a texto plano sin sanitizador, búsquedas con errores, actualización tras CRUD y apertura como archivo sin CDN. Se comprueban con axe las cuatro vistas a 320, 375, 768, 1024 y 1440px y el modal evaluado, además de foco, Escape, reducción de movimiento y ausencia de desbordamiento global. No verifica el servidor real ni certifica cumplimiento completo WCAG.
 

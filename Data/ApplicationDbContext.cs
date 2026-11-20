@@ -26,7 +26,7 @@ namespace ChatbotApi.Data
                 entity.HasKey(u => u.Id);
                 entity.HasIndex(u => u.Email).IsUnique();
                 entity.Property(u => u.Rol).HasDefaultValue("User");
-                entity.Property(u => u.FechaCreacion).HasDefaultValueSql("GETUTCDATE()");
+                entity.Property(u => u.FechaCreacion).HasDefaultValueSql("now()");
             });
 
             // 2. Configuración de Preguntas
@@ -48,7 +48,7 @@ namespace ChatbotApi.Data
             {
                 entity.ToTable("Respuestas");
                 entity.HasKey(r => r.Id);
-                entity.Property(r => r.UltimaActualizacion).HasDefaultValueSql("GETUTCDATE()");
+                entity.Property(r => r.UltimaActualizacion).HasDefaultValueSql("now()");
             });
 
             // 4. Configuración de Conversaciones
@@ -57,7 +57,7 @@ namespace ChatbotApi.Data
                 entity.ToTable("Conversaciones");
                 entity.HasKey(c => c.Id);
                 entity.HasIndex(c => c.SessionId);
-                entity.Property(c => c.Timestamp).HasDefaultValueSql("GETUTCDATE()");
+                entity.Property(c => c.Timestamp).HasDefaultValueSql("now()");
 
                 // Relación opcional con Usuario
                 entity.HasOne(c => c.Usuario)

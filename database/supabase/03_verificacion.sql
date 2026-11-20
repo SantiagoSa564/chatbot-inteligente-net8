@@ -1,7 +1,7 @@
 -- ============================================================================
 -- NexusAI · Verificación de la carga en Supabase
 -- Ejecutar después de 01_esquema.sql y 02_datos.sql.
--- Resultado esperado: 4 usuarios, 5 preguntas, 5 respuestas, 2 conversaciones.
+-- Resultado esperado: 2 usuarios, 5 preguntas, 5 respuestas, 0 conversaciones.
 -- ============================================================================
 
 select

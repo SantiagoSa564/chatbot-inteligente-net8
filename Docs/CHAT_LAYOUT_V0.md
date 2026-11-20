@@ -114,10 +114,10 @@ Las láminas de comparación y las capturas individuales seleccionadas se revisa
 
 ## Pendientes de entorno
 
-Actualización posterior: ya se ejecutó el entorno Docker .NET 8 + SQL Server, con 20 verificaciones HTTP reales y el flujo real de navegador aprobados. Ver `Docs/EJECUCION_REAL_LOCAL.md`. Las limitaciones siguientes eran las del momento de reconstruir el layout; proveedores IA, TLS y revisión manual ampliada siguen pendientes.
+Actualización posterior: ya se ejecutó el entorno Docker .NET 8 + SQL Server, con 20 verificaciones HTTP reales y el flujo real de navegador aprobados. Después el backend se migró a **PostgreSQL 17** (Npgsql) y se repitieron: 20 verificaciones HTTP, flujo Playwright real y 33 pruebas de interfaz. Ver `Docs/EJECUCION_REAL_LOCAL.md`. Las limitaciones siguientes eran las del momento de reconstruir el layout; proveedores IA, TLS y revisión manual ampliada siguen pendientes.
 
-- Build/ejecución ASP.NET Core .NET 8 y SQL Server reales: no disponibles en este entorno.
-- JWT emitido por backend, persistencia SQL y proveedores de IA reales: no se validaron con las pruebas de navegador interceptadas.
+- Build/ejecución ASP.NET Core .NET 8 y PostgreSQL reales: no disponibles en ese momento (ya validados después).
+- JWT emitido por backend, persistencia y proveedores de IA reales: el JWT y la persistencia ya se validaron; los proveedores de IA siguen sin probarse.
 - Firefox/Safari, lector de pantalla, zoom real y teclado virtual: revisión manual pendiente.
 - Derechos de publicación de imágenes entregadas en el ZIP, como se indica en `wwwroot/images/nexusai/README.md`.
 

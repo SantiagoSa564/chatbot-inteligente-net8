@@ -16,7 +16,7 @@ if (!['127.0.0.1', 'localhost', '[::1]'].includes(new URL(origin).hostname)) thr
   await page.route('https://fonts.gstatic.com/**', route => route.abort());
   const captures = process.env.NEXUS_REAL_SCREENSHOTS || '/tmp/opencode/nexus-real-browser';
   await fs.mkdir(captures, { recursive: true });
-  const question = `Prueba navegador SQL ${randomUUID()}`;
+  const question = `Prueba navegador PostgreSQL ${randomUUID()}`;
   try {
     await page.goto(origin); await page.waitForFunction(() => typeof checking !== 'undefined' && !checking);
     assert.equal(await page.evaluate(() => mode), 'api');
@@ -32,14 +32,14 @@ if (!['127.0.0.1', 'localhost', '[::1]'].includes(new URL(origin).hostname)) thr
     await page.locator('#admin-entry').click(); await page.locator('#add-faq').click();
     await page.locator('#edit-faq-categoria').fill('Prueba navegador real');
     await page.locator('#edit-faq-pregunta').fill(question);
-    await page.locator('#edit-faq-respuesta').fill('Respuesta guardada realmente en SQL Server.');
+    await page.locator('#edit-faq-respuesta').fill('Respuesta guardada realmente en PostgreSQL.');
     await page.locator('#edit-faq-estado').selectOption('false');
     await page.locator('#faq-form button[type="submit"]').click(); await page.waitForFunction(() => !operationBusy);
     assert.equal(await page.locator('#faq-modal').isVisible(), false);
     const created = await page.evaluate(question => faqsState.find(f => f.textoPregunta === question), question); assert.ok(created); createdId = created.id;
     await page.locator('#faq-search-input').fill(question);
     assert.match(await page.locator('#faqs-table-body').textContent(), /Inactiva/);
-    await page.screenshot({ path: path.join(captures, 'real-admin-sql.png'), animations: 'disabled' });
+    await page.screenshot({ path: path.join(captures, 'real-admin-faq.png'), animations: 'disabled' });
     await page.locator('#tab-help').click(); await page.locator('#help-search-input').fill(question);
     assert.equal(await page.locator('#help-list .help-item').count(), 0);
     await page.locator('#admin-entry').click();
@@ -53,7 +53,7 @@ if (!['127.0.0.1', 'localhost', '[::1]'].includes(new URL(origin).hostname)) thr
     assert.equal(await page.evaluate(() => currentUser), null);
     assert.equal(await page.locator('#admin-entry').isVisible(), false);
     assert.deepEqual(errors, []);
-    console.log('PASS real browser: API mode, JWT login/logout, memory-only token, SQL FAQ create/update/delete, inactive filtering, no JS exceptions.');
+    console.log('PASS real browser: API mode, JWT login/logout, memory-only token, PostgreSQL FAQ create/update/delete, inactive filtering, no JS exceptions.');
     console.log('Screenshots:', captures);
     console.log('PENDING real LLM generation: no chat/provider request was sent.');
   } finally {
