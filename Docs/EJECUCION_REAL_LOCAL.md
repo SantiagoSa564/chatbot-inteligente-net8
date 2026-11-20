@@ -124,6 +124,12 @@ Consulta SQL final:
 - Migración aplicada: `20261110000000_InitialCreate`.
 - Usuarios: 4 (dos del seeder y dos cuentas de integración creadas en las dos ejecuciones HTTP).
 - Preguntas: 5; respuestas: 5. Las FAQs temporales de las pruebas se eliminaron.
-- Conversaciones: 0. No hubo mensajes enviados a proveedores ni intercambios simulados guardados.
+- Conversaciones: 0 en el momento de esta comprobación, porque la validación no envió mensajes. Después, al usar la aplicación, se generaron 2 conversaciones reales; no se auditó si las respondió el proveedor configurado o el respaldo del backend.
 
 La persistencia se comprobó por lectura real de API y consulta directa a SQL. El volumen está configurado; no se hizo una prueba de reinicio completo de la máquina. Tampoco se validó TLS/producción, carga, expiración temporal real de JWT ni disponibilidad de proveedores IA. Los resultados de la suite de frontend con mocks de etapas anteriores no se presentan como pruebas del servidor.
+
+## Exportación de la base a Supabase
+
+`database/supabase/` contiene el volcado de esta base convertido a PostgreSQL: `01_esquema.sql` (DDL equivalente a la migración), `02_datos.sql` (4 usuarios, 5 preguntas, 5 respuestas y 2 conversaciones) y `03_verificacion.sql`. Los scripts se ejecutaron sobre un PostgreSQL 17 real: conteos, tildes, comillas escapadas, saltos de línea, `uuid`, fechas UTC, secuencias de identidad y borrado en cascada verificados. El paquete no incluye credenciales.
+
+Cargarlo en Supabase **no conecta la API a Supabase**: el backend sigue usando el proveedor `Microsoft.EntityFrameworkCore.SqlServer`. Cambiarlo a Npgsql implicaría modificar el backend y no se ha hecho. Detalles y pasos en `database/supabase/README.md`.
